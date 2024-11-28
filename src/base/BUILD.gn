@@ -23,6 +23,12 @@ import("../../gn/wasm.gni")
 _subprocess_supported =
     is_linux || is_chromeos || is_android || is_mac || is_win
 
+config("config") {
+  if (is_ohos) {
+    libs = [ "ace_napi.z" ]
+  }
+}
+
 perfetto_component("base") {
   deps = [
     "../../gn:base_platform",
@@ -79,6 +85,10 @@ perfetto_component("base") {
 
   if (enable_perfetto_stderr_crash_dump) {
     deps += [ ":debug_crash_stack_trace" ]
+  }
+
+  if(is_ohos) {
+    public_configs = [ ":config" ]
   }
 }
 

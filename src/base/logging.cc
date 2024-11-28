@@ -37,6 +37,10 @@
 #include <android/set_abort_message.h>
 #endif
 
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_OHOS)
+#include "hilog/log.h"
+#endif
+
 namespace perfetto {
 namespace base {
 
@@ -167,6 +171,11 @@ void LogMessage(LogLev level,
   __android_log_print(int{ANDROID_LOG_DEBUG} + level, "perfetto", "%s %s",
                       file_and_line.c_str(), log_msg);
 #endif
+
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_OHOS)
+  OH_LOG_Print(LOG_APP, (LogLevel)(int{LOG_DEBUG} + level), 0x3311, "perfetto", "%{public}s %{public}s", file_and_line.c_str(), log_msg);
+#endif
+
 
   // When printing on stderr, print also the timestamp. We don't really care
   // about the actual time. We just need some reference clock that can be used
