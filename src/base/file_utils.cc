@@ -165,7 +165,8 @@ bool ReadFile(const std::string& path, std::string* out) {
   if (!fd)
     return false;
 
-  return ReadFileDescriptor(*fd, out);
+  bool result = ReadFileDescriptor(*fd, out);
+  return result;
 }
 
 ssize_t WriteAll(int fd, const void* buf, size_t count) {
