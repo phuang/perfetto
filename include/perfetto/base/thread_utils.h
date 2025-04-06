@@ -33,7 +33,8 @@ __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
 #include <sys/types.h>
 #include <unistd.h>
 #elif PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) || \
-    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
+    PERFETTO_BUILDFLAG(PERFETTO_OS_OHOS)
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -45,6 +46,7 @@ namespace perfetto {
 namespace base {
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
+    PERFETTO_BUILDFLAG(PERFETTO_OS_OHOS) || \
     PERFETTO_BUILDFLAG(PERFETTO_OS_QNX)
 using PlatformThreadId = pid_t;
 inline PlatformThreadId GetThreadId() {
