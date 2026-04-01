@@ -72,7 +72,7 @@ export default class implements PerfettoPlugin {
   // Lazily initialize the RecordingManager at first call. This is to prevent
   // providers to connect to sockets / devtools (which in turn can trigger
   // security UX in the browser) before the user has even done anything.
-  private static getRecordingManager(app: App): RecordingManager {
+  static getRecordingManager(app: App): RecordingManager {
     if (this.recordingMgr === undefined) {
       const recMgr = new RecordingManager(app);
       this.recordingMgr = recMgr;
@@ -87,7 +87,6 @@ export default class implements PerfettoPlugin {
         targetSelectionPage(recMgr),
         bufferConfigPage(recMgr),
         instructionsPage(recMgr),
-
         chromeRecordSection(
           () => chromeProvider.getTrackEventDescriptor(),
           () => recMgr.currentPlatform,

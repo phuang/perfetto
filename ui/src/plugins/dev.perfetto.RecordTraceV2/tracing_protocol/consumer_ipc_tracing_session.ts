@@ -34,6 +34,7 @@ export class ConsumerIpcTracingSession implements TracingSession {
   readonly logs = new Array<TracingSessionLogEntry>();
   private traceBuf = new ResizableArrayBuffer(64 * 1024);
   readonly onSessionUpdate = new EvtSource<void>();
+  readonly onTraceData = new EvtSource<Uint8Array>();
 
   constructor(consumerIpc: TracingProtocol, traceConfig: protos.ITraceConfig) {
     this.consumerIpc = consumerIpc;
@@ -49,7 +50,10 @@ export class ConsumerIpcTracingSession implements TracingSession {
     const req = new protos.EnableTracingRequest({traceConfig});
     this.log(`Starting trace, durationMs: ${traceConfig.durationMs}`);
     const resp = await this.consumerIpc.invoke('EnableTracing', req);
-    this.onTraceStopped(resp.error);
+    this.log('EnableTracing completed');
+    if (this._state === 'RECORDING') {
+      this.onTraceStopped(resp.error);
+    }
   }
 
   async stop(): Promise<void> {
@@ -104,7 +108,7 @@ export class ConsumerIpcTracingSession implements TracingSession {
     this.log('Tracing stopped. Reading back data');
     const rbreq = new protos.ReadBuffersRequest({});
     const stream = this.consumerIpc.invokeStreaming('ReadBuffers', rbreq);
-    stream.onTraceData = this.onTraceData.bind(this);
+    stream.onTraceData = this.onTraceDataInternal.bind(this);
   }
 
   getTraceData(): Uint8Array | undefined {
@@ -113,7 +117,28 @@ export class ConsumerIpcTracingSession implements TracingSession {
     return buf;
   }
 
-  private onTraceData(packets: Uint8Array, hasMore: boolean) {
+  async readBuffers(): Promise<void> {
+    if (this._state !== 'RECORDING') return;
+    const rbreq = new protos.ReadBuffersRequest({});
+    const stream = this.consumerIpc.invokeStreaming('ReadBuffers', rbreq);
+    stream.onTraceData = (packets, hasMore) => {
+      this.onTraceData.notify(packets);
+      this.traceBuf.append(packets);
+      if (!hasMore) {
+        // ReadBuffers is destructive. We don't change state here.
+      }
+    };
+  }
+
+  async flush(): Promise<void> {
+    if (this._state !== 'RECORDING') return;
+    // Initiator=kPerfettoCmd, Reason=kExplicit. See flush_flags.h.
+    const flags = (2 << 4) | 1;
+    await this.consumerIpc.invoke('Flush', new protos.FlushRequest({flags}));
+  }
+
+  private onTraceDataInternal(packets: Uint8Array, hasMore: boolean) {
+    this.onTraceData.notify(packets);
     this.traceBuf.append(packets);
     if (hasMore) return;
 

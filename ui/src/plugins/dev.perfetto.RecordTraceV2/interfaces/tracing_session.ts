@@ -22,6 +22,7 @@ export interface TracingSession {
   readonly state: TracingSessionState;
   readonly logs: ReadonlyArray<TracingSessionLogEntry>;
   readonly onSessionUpdate: Evt<void>;
+  readonly onTraceData: Evt<Uint8Array>;
 
   /** Stop tracing and get the data captured so far. */
   stop(): Promise<void>;
@@ -34,6 +35,12 @@ export interface TracingSession {
 
   /** Returns the trace file captured once state === 'FINISHED'. */
   getTraceData(): Uint8Array | undefined;
+
+  /** Manually trigger ReadBuffers. Data will be emitted via onTraceData. */
+  readBuffers(): Promise<void>;
+
+  /** Manually trigger a Flush of all data sources. */
+  flush(): Promise<void>;
 }
 
 export type TracingSessionState =
