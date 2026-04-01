@@ -27,7 +27,24 @@ export function cpuRecordSection(): RecordSubpage {
     title: 'CPU',
     subtitle: 'CPU usage, scheduling, wakeups',
     icon: 'subtitles',
-    probes: [cpuUsage(), sched(), cpuFreq(), syscalls()],
+    probes: [cpuUsage(), sched(), cpuFreq(), thermal(), syscalls()],
+  };
+}
+
+function thermal(): RecordProbe {
+  const settings = {pollMs: new Slider(POLL_INTERVAL_SLIDER)};
+  return {
+    id: 'cpu_thermal',
+    image: 'rec_thermal.png',
+    title: 'Thermal sensors',
+    description: 'Polls thermal sensors (temperatures)',
+    supportedPlatforms: ['ANDROID', 'LINUX'],
+    settings,
+    genConfig: function (tc: TraceConfigBuilder) {
+      const cfg = tc.addDataSource(PROC_POLL_DS);
+      cfg.sysStatsConfig ??= {};
+      cfg.sysStatsConfig.thermalPeriodMs = settings.pollMs.value;
+    },
   };
 }
 

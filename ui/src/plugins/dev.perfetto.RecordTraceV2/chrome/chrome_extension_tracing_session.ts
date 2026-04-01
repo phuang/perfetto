@@ -29,6 +29,7 @@ export class ChromeExtensionTracingSession implements TracingSession {
   readonly logs = new Array<TracingSessionLogEntry>();
   private traceBuf = new ResizableArrayBuffer(64 * 1024);
   readonly onSessionUpdate = new EvtSource<void>();
+  readonly onTraceData = new EvtSource<Uint8Array>();
   private pendingBufferUsage = new Array<Deferred<number>>();
 
   constructor(
@@ -61,6 +62,14 @@ export class ChromeExtensionTracingSession implements TracingSession {
     this.pendingBufferUsage.push(promise);
     this.target.invokeExtensionMethod('GetTraceStats');
     return promise;
+  }
+
+  async readBuffers(): Promise<void> {
+    // Chrome extension tracing doesn't support periodic read-back.
+  }
+
+  async flush(): Promise<void> {
+    // Chrome extension tracing doesn't support periodic flush.
   }
 
   getTraceData(): Uint8Array | undefined {
