@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import m from 'mithril';
+import * as echarts from 'echarts/core';
 import {RecordingManager} from '../../dev.perfetto.RecordTraceV2/recording_manager';
 import {LivePoint, LiveTracingManager} from '../live_tracing_manager';
 import {Button} from '../../../widgets/button';
