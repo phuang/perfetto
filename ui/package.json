@@ -55,6 +55,7 @@
     "@playwright/test": "^1.58.2",
     "@rollup/plugin-commonjs": "^26.0.1",
     "@rollup/plugin-node-resolve": "^15.2.3",
+    "@tailwindcss/cli": "^4.2.2",
     "@types/jest": "^29.5.12",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.14.1",
@@ -77,6 +78,7 @@
     "rollup-plugin-uglify": "^6.0.4",
     "sass": "^1.77.6",
     "source-map": "^0.7.6",
+    "tailwindcss": "^4.2.2",
     "tslib": "^2.6.3",
     "typescript": "5.5.2"
   },

@@ -127,6 +127,7 @@ const RULES = [
   {r: /buildtools\/typefaces\/(.+[.]woff2)/, f: copyAssets},
   {r: /buildtools\/catapult_trace_viewer\/(.+(js|html))/, f: copyAssets},
   {r: /ui\/src\/assets\/.+[.]scss|ui\/src\/(?:plugins|core_plugins)\/.+[.]scss/, f: compileScss},
+  {r: /ui\/src\/assets\/tailwind.scss/, f: compileTailwind},
   {r: /ui\/src\/chrome_extension\/.*/, f: copyExtensionAssets},
   {r: /.*\/dist\/.+\/(?!manifest\.json).*/, f: genServiceWorkerManifestJson},
   {r: /.*\/dist\/.*[.](js|html|css|wasm)$/, f: notifyLiveServer},
@@ -475,6 +476,22 @@ function compileScss() {
   addTask(execModule, ['sass', args, {noErrCheck}]);
   if (cfg.bigtrace) {
     addTask(cp, [dst, pjoin(cfg.outBigtraceDistDir, 'perfetto.css')]);
+  }
+}
+
+function compileTailwind() {
+  const src = pjoin(ROOT_DIR, 'ui/src/assets/tailwind.scss');
+  const dst = pjoin(cfg.outDistDir, 'tailwind.css');
+  // In watch mode, don't exit(1) if scss fails. It can easily happen by
+  // having a typo in the css. It will still print an error.
+  const noErrCheck = !!cfg.watch;
+  const args = ['-i', src, '-o', dst];
+  // if (!cfg.verbose) {
+  //   args.unshift('--quiet');
+  // }
+  addTask(execModule, ['tailwindcss', args, {noErrCheck}]);
+  if (cfg.bigtrace) {
+    addTask(cp, [dst, pjoin(cfg.outBigtraceDistDir, 'tailwind.css')]);
   }
 }
 
