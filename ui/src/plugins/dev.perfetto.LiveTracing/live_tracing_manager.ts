@@ -13,13 +13,13 @@
 // limitations under the License.
 
 import protos from '../../protos';
-import {RecordingTarget} from '../dev.perfetto.RecordTraceV2/interfaces/recording_target';
-import {TracingSession} from '../dev.perfetto.RecordTraceV2/interfaces/tracing_session';
-import {EvtSource} from '../../base/events';
-import m from 'mithril';
-import {WasmEngineProxy} from '../../trace_processor/wasm_engine_proxy';
-import {LONG, NUM, STR, STR_NULL} from '../../trace_processor/query_result';
+import { RecordingTarget } from '../dev.perfetto.RecordTraceV2/interfaces/recording_target';
+import { TracingSession } from '../dev.perfetto.RecordTraceV2/interfaces/tracing_session';
+import { EvtSource } from '../../base/events';
+import { WasmEngineProxy } from '../../trace_processor/wasm_engine_proxy';
+import { QueryResult, STR } from '../../trace_processor/query_result';
 import protobuf from 'protobufjs/minimal';
+import * as sql from './sql';
 
 export interface LivePoint {
   readonly x: number;
@@ -37,8 +37,24 @@ export class LiveTracingManager {
   private timer?: number;
   readonly series = new Map<string, LiveSeries>();
   readonly onDataUpdate = new EvtSource<void>();
-  private firstTs = 0n;
-  private lastQueryTs = 0n;
+  private lastQueryTime = 0;
+  private pendingParseResults: Array<Promise<void>> = [];
+  private intrinsicTablesExist: boolean = false;
+  private cpuFreqData = {
+    little: [{ load: 0, freq: 0 }, { load: 0, freq: 0 }],
+    mid: [{ load: 0, freq: 0 }, { load: 0, freq: 0 }, { load: 0, freq: 0 }, { load: 0, freq: 0 }],
+    big: [{ load: 0, freq: 0 }],
+  };
+  private fpsData = 0;
+  private powerData = { cpu: 0, ddr: 0 };
+  private tempData = { pkg: 0, gpu: 0 };
+
+  // a data callback variable.
+  private dataCallback?: (data: Record<string, unknown>) => void;
+
+  registerDataCallback(callback: (data: Record<string, unknown>) => void) {
+    this.dataCallback = callback;
+  }
 
   async start(target: RecordingTarget) {
     if (this.session) {
@@ -63,8 +79,8 @@ export class LiveTracingManager {
 
     this.session = res.value;
     this.series.clear();
-    this.firstTs = 0n;
-    this.lastQueryTs = 0n;
+    this.lastQueryTime = 0;
+    this.intrinsicTablesExist = false;
 
     // Send TraceConfig packet first so TraceProcessor knows what to expect.
     const traceConfigBytes = protos.TraceConfig.encode(config).finish();
@@ -113,171 +129,297 @@ export class LiveTracingManager {
   }
 
   private createConfig(): protos.ITraceConfig {
+    // return {
+    //   durationMs: 0, // Continuous
+    //   flushPeriodMs: 1000,
+    //   buffers: [
+    //     {
+    //       sizeKb: 4 * 1024,
+    //       fillPolicy: protos.TraceConfig.BufferConfig.FillPolicy.RING_BUFFER,
+    //     },
+    //   ],
+    //   dataSources: [
+    //     {
+    //       config: {
+    //         name: 'linux.sys_stats',
+    //         sysStatsConfig: {
+    //           cpufreqPeriodMs: 1000,
+    //           thermalPeriodMs: 1000,
+    //           devfreqPeriodMs: 1000,
+    //           meminfoPeriodMs: 1000,
+    //         },
+    //       },
+    //     },
+    //     {
+    //       config: {
+    //         name: 'android.power',
+    //         androidPowerConfig: {
+    //           batteryPollMs: 1000,
+    //           collectPowerRails: true,
+    //           batteryCounters: [
+    //             protos.AndroidPowerConfig.BatteryCounters
+    //               .BATTERY_COUNTER_CAPACITY_PERCENT,
+    //             protos.AndroidPowerConfig.BatteryCounters.BATTERY_COUNTER_CHARGE,
+    //             protos.AndroidPowerConfig.BatteryCounters
+    //               .BATTERY_COUNTER_CURRENT,
+    //           ],
+    //         },
+    //       },
+    //     },
+    //   ],
+    // };
+
+    const androidConfig = {
+      name: 'android.power',
+      androidPowerConfig: {
+        batteryPollMs: 1000,
+        collectPowerRails: true,
+        batteryCounters: [
+          protos.AndroidPowerConfig.BatteryCounters
+            .BATTERY_COUNTER_CAPACITY_PERCENT,
+          protos.AndroidPowerConfig.BatteryCounters.BATTERY_COUNTER_CHARGE,
+          protos.AndroidPowerConfig.BatteryCounters
+            .BATTERY_COUNTER_CURRENT,
+        ],
+      },
+    };
+
+    const linuxFTraceConfig = {
+      name: 'linux.ftrace',
+      ftraceConfig: {
+        ftraceEvents: [
+          'sched/sched_switch',
+          'power/cpu_frequency',
+          'power/cpu_idle',
+          'power/suspend_resume',
+          'ftrace/print',
+        ],
+        atraceCategories: [
+          'freq',
+          'power',
+          'thermal',
+        ],
+      },
+    };
+
+    const surfaceFlingerConfig = {
+      name: 'android.surfaceflinger.frametimeline',
+    };
+
     return {
       durationMs: 0, // Continuous
       flushPeriodMs: 1000,
       buffers: [
         {
-          sizeKb: 64 * 1024,
+          sizeKb: 4 * 1024,
           fillPolicy: protos.TraceConfig.BufferConfig.FillPolicy.RING_BUFFER,
         },
       ],
       dataSources: [
         {
-          config: {
-            name: 'linux.sys_stats',
-            sysStatsConfig: {
-              cpufreqPeriodMs: 1000,
-              thermalPeriodMs: 1000,
-              devfreqPeriodMs: 1000,
-              meminfoPeriodMs: 1000,
-            },
-          },
+          config: androidConfig,
         },
         {
-          config: {
-            name: 'android.power',
-            androidPowerConfig: {
-              batteryPollMs: 1000,
-              collectPowerRails: true,
-              batteryCounters: [
-                protos.AndroidPowerConfig.BatteryCounters
-                  .BATTERY_COUNTER_CAPACITY_PERCENT,
-                protos.AndroidPowerConfig.BatteryCounters.BATTERY_COUNTER_CHARGE,
-                protos.AndroidPowerConfig.BatteryCounters
-                  .BATTERY_COUNTER_CURRENT,
-              ],
-            },
-          },
+          config: linuxFTraceConfig,
         },
+        {
+          config: surfaceFlingerConfig,
+        }
       ],
     };
   }
 
   private async parsePackets(data: Uint8Array) {
-    if (!this.engine) return;
-    try {
-      await this.engine.parse(data);
+    if (!this.engine) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (!this.lastQueryTime) {
+      this.lastQueryTime = now;
+    }
+
+    this.pendingParseResults.push(this.engine.parse(data));
+
+    if (now - this.lastQueryTime < 1000) {
+      console.log('LiveTracingManager: feed data to engine, waiting for next flush to query');
+      return;
+    }
+    this.lastQueryTime = now;
+
+    let parsePromisses = this.pendingParseResults;
+    this.pendingParseResults = [];
+
+    // Wait for all pending parses to complete before querying.
+    Promise.all(parsePromisses).then(async () => {
+      console.log('LiveTracingManager: Parsed trace data');
+      if (!this.engine) {
+        console.error('LiveTracingManager: Engine not initialized');
+        return;
+      }
 
       // Check if intrinsic tables exist.
-      const checkTables = await this.engine.tryQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('__intrinsic_track', '__intrinsic_counter', 'cpu_counter_track', 'counter_track')",
-      );
-      if (!checkTables.ok) return;
+      if (!this.intrinsicTablesExist) {
+        const checkTablesResult = await this.engine.tryQuery(
+          "SELECT name FROM sqlite_master WHERE name LIKE '%counter%' OR name LIKE '%track%';"
+        );
 
-      const tables = new Set<string>();
-      const tableIt = checkTables.value.iter({name: STR});
-      for (; tableIt.valid(); tableIt.next()) {
-        tables.add(tableIt.name);
-      }
-      if (
-        !tables.has('__intrinsic_track') ||
-        !tables.has('__intrinsic_counter')
-      ) {
-        return;
-      }
-
-      const hasCpuTrack = tables.has('cpu_counter_track');
-
-      // Debug: list all tracks.
-      const tracksRes = await this.engine.tryQuery(
-        'SELECT id, name, type FROM __intrinsic_track',
-      );
-      if (tracksRes.ok) {
-        const trackList = [];
-        const it = tracksRes.value.iter({id: NUM, name: STR_NULL, type: STR});
-        for (; it.valid(); it.next()) {
-          trackList.push(`${it.id}:${it.name ?? 'null'}(${it.type})`);
+        if (!checkTablesResult.ok) {
+          console.error('LiveTracingManager: Failed to check intrinsic tables', checkTablesResult.error);
+          return;
         }
-        if (trackList.length > 0) {
-          console.log(
-            'LiveTracingManager: Available tracks:',
-            trackList.join(', '),
-          );
+
+        const tables = new Set<string>();
+        const tableIt = checkTablesResult.value.iter({ name: STR });
+        console.log(`LiveTracingManager: Detected intrinsic tables: ${Array.from(tables).join(', ')}`);
+
+        for (; tableIt.valid(); tableIt.next()) {
+          tables.add(tableIt.name);
+        }
+
+        this.intrinsicTablesExist = tables.has('__intrinsic_track') && tables.has('__intrinsic_counter');
+        if (!this.intrinsicTablesExist) {
+          console.warn('LiveTracingManager: Intrinsic tables not found, live tracing data may be incomplete');
+          return;
         }
       }
 
-      // Query for new counter samples with better names.
-      // We don't use 'unit' as it's missing from intrinsic tables.
-      const query = hasCpuTrack
-        ? `
-        SELECT
-          COALESCE(t.name, cct.name, 'unknown') || 
-          (CASE WHEN cct.cpu IS NOT NULL THEN ' (CPU ' || cct.cpu || ')' ELSE '' END) as name,
-          ts,
-          value
-        FROM __intrinsic_counter c
-        JOIN __intrinsic_track t ON c.track_id = t.id
-        LEFT JOIN cpu_counter_track cct ON c.track_id = cct.id
-        WHERE ts > ${this.lastQueryTs}
-        ORDER BY ts ASC
-      `
-        : `
-        SELECT
-          COALESCE(t.name, 'unknown') as name,
-          ts,
-          value
-        FROM __intrinsic_counter c
-        JOIN __intrinsic_track t ON c.track_id = t.id
-        WHERE ts > ${this.lastQueryTs}
-        ORDER BY ts ASC
-      `;
+      const queries: Array<string> = [
+        sql.kQueryCpuLoad,
+        sql.kQueryCpuFreq,
+        sql.kQueryFps,
+        sql.kQueryPower,
+        sql.kQueryTemperature,];
 
-      const res = await this.engine.tryQuery(query);
+      const queryResults: Array<Promise<QueryResult>> = queries.map(q => this.engine!.query(q));
 
-      if (!res.ok) {
-        console.error('LiveTracingManager: Counter query failed', res.error);
-        return;
-      }
+      Promise.all(queryResults).then((results) => {
+        const [cpuLoadResult, cpuFreqResult, fpsResult, powerResult, thermResult] = results;
+        // Process CPU load results.
+        {
+          // console.log(`LiveTracingManager: queryResults obtaineed ${cpuLoadResult.numRows()} rows`);
+          const iter = cpuLoadResult.iter(sql.kCpuLoadDataSchema);
 
-      const iter = res.value.iter({
-        name: STR,
-        ts: LONG,
-        value: NUM,
-      });
-
-      let maxTs = this.lastQueryTs;
-      for (; iter.valid(); iter.next()) {
-        if (this.firstTs === 0n) this.firstTs = iter.ts;
-        if (iter.ts > maxTs) maxTs = iter.ts;
-
-        const relTs = Number(iter.ts - this.firstTs) / 1e9;
-        let val = iter.value;
-        let name = iter.name;
-
-        // Heuristic to detect thermal zones.
-        const lowerName = name.toLowerCase();
-        const isThermal =
-          lowerName.includes('thermal') || lowerName.includes('temp');
-        if (isThermal) {
-          if (!lowerName.includes('thermal') && !lowerName.includes('temp')) {
-            name += ' (Thermal)';
+          for (; iter.valid(); iter.next()) {
+            const cpu = iter.cpu;
+            // const busyMs = iter.busy_ms;
+            const loadPercent = iter.load_percent;
+            // console.log(`CPU ${cpu}: Busy ${busyMs} ms, Load ${loadPercent}%`);
+            if (cpu < 2) {
+              this.cpuFreqData.little[cpu].load = loadPercent;
+            } else if (cpu < 6) {
+              this.cpuFreqData.mid[cpu - 2].load = loadPercent;
+            } else {
+              this.cpuFreqData.big[cpu - 6].load = loadPercent;
+            }
           }
-          // Values are often in mC. If it's > 200, it's likely mC.
-          if (val > 200) val /= 1000;
         }
 
-        this.addPoint(name, relTs, val);
-      }
-      this.lastQueryTs = maxTs;
+        // Process CPU frequency results.
+        {
+          // console.log(`LiveTracingManager: queryResults obtaineed ${cpuFreqResult.numRows()} rows`);
+          const iter = cpuFreqResult.iter(sql.kCpuFreqDataSchema);
 
-      this.onDataUpdate.notify();
-      m.redraw();
-    } catch (e) {
-      console.error('LiveTracingManager: Unexpected error in parsePackets', e);
-    }
-  }
+          for (; iter.valid(); iter.next()) {
+            const cpu = iter.cpu;
+            const avgFreq = iter.avg_freq / 1000000; // Convert to GHz
+            // const lastFreq = iter.last_freq / 1000000; // Convert to GHz
+            // const lastTs = iter.last_ts;
+            // console.log(`CPU ${cpu}: Frequency ${avgFreq} GHz at ${lastTs} ms`);
+            // this.lastQueryTs = lastTs
+            if (cpu < 2) {
+              this.cpuFreqData.little[cpu].freq = avgFreq;
+            } else if (cpu < 6) {
+              this.cpuFreqData.mid[cpu - 2].freq = avgFreq;
+            } else {
+              this.cpuFreqData.big[cpu - 6].freq = avgFreq;
+            }
+          }
+        }
 
-  private addPoint(name: string, x: number, y: number) {
-    let s = this.series.get(name);
-    if (!s) {
-      s = {name, points: []};
-      this.series.set(name, s);
-    }
-    s.points.push({x, y});
-    // Keep last 60 points (60 seconds)
-    if (s.points.length > 60) {
-      s.points.shift();
-    }
+        // Process FPS results.
+        {
+          const iter = fpsResult.iter(sql.kFpsDataSchema);
+
+          if (iter.valid()) {
+            const fps = iter.fps;
+            // const avgFrameDurMs = iter.avg_frame_dur_ms;
+            // const capturedIntervalNs = iter.captured_interval_ns;
+            // console.log(`FPS: ${fps}`);
+            this.fpsData = fps;
+          }
+        }
+
+        // Process power results.
+        {
+          const iter = powerResult.iter(sql.kPowerDataSchema);
+
+          if (iter.valid()) {
+            const component = iter.component;
+            const totalAvgPowerUw = iter.total_avg_power_uw;
+            // console.log(`Total Average Power: ${totalAvgPowerUw} uW`);
+            if (component === 'Total CPU Clusters') {
+              if (totalAvgPowerUw !== null) {
+                this.powerData.cpu = totalAvgPowerUw / 1000; // Convert to mW
+              }
+            } else if (component === 'Total DDR') {
+              if (totalAvgPowerUw !== null) {
+                this.powerData.ddr = totalAvgPowerUw / 1000; // Convert to mW
+              }
+            } else if (component === 'GPU') {
+              // For simplicity, assign GPU power to SOC as well since we don't have a separate GPU rail in this example.
+              if (totalAvgPowerUw !== null) {
+                this.powerData.cpu = totalAvgPowerUw / 1000; // Convert to mW
+              }
+            }
+          }
+        }
+
+        // Process temperature results.
+        {
+          const iter = thermResult.iter(sql.kTemperatureDataSchema);
+
+          var temps: Record<string, number> = {
+            'soc_therm': 0,
+            'soc_therm-cached': 0,
+            'gpu_therm': 0,
+            'gpu_therm-cached': 0,
+          };
+          for (; iter.valid(); iter.next()) {
+            const sensor = iter.sensor;
+            // const minTemp = iter.min_temp;
+            // const maxTemp = iter.max_temp;
+            const avgTemp = iter.avg_temp;
+            temps[sensor] = avgTemp;
+            // console.log(`Sensor ${sensor}: Min ${minTemp} °C, Max ${maxTemp} °C, Avg ${avgTemp} °C`);
+            if (sensor === 'soc_therm' || sensor === 'soc_therm-cached') {
+              this.tempData.pkg = avgTemp;
+            } else if (sensor === 'gpu_therm' || sensor === 'gpu_therm-cached') {
+              this.tempData.gpu = avgTemp;
+            }
+          }
+
+          this.tempData.pkg = temps['soc_therm'] || temps['soc_therm-cached'] || this.tempData.pkg;
+          this.tempData.gpu = temps['gpu_therm'] || temps['gpu_therm-cached'] || this.tempData.gpu;
+
+        }
+
+        if (this.dataCallback) {
+          // const CORES = { LITTLE: 2, MID: 4, BIG: 1 };
+          let data: Record<string, unknown> = {
+            cpu: this.cpuFreqData,
+            temp: this.tempData,
+            power: { pkg: this.powerData.cpu, dram: this.powerData.ddr },
+            fps: this.fpsData,
+          };
+          this.dataCallback(data);
+        }
+      }).catch((e) => {
+        console.error('LiveTracingManager: Failed to query counters', e);
+      });
+    }).catch((e) => {
+      console.error('LiveTracingManager: Failed to parse data: ', e);
+    });
   }
 }

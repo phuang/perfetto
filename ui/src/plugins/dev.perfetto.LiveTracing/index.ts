@@ -15,7 +15,7 @@
 import m from 'mithril';
 import {App} from '../../public/app';
 import {PerfettoPlugin} from '../../public/plugin';
-import {LiveTracingPage} from './pages/live_tracing_page';
+import { SystemMonitor } from './pages/system_monitor';
 import RecordTraceV2 from '../dev.perfetto.RecordTraceV2';
 
 export default class implements PerfettoPlugin {
@@ -34,7 +34,7 @@ export default class implements PerfettoPlugin {
       route: '/live_tracing',
       render: () => {
         const recMgr = RecordTraceV2.getRecordingManager(app);
-        return m(LiveTracingPage, {recMgr});
+        return m(SystemMonitor, {recMgr});
       },
     });
   }
