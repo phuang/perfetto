@@ -47,6 +47,9 @@ dependencies:
   '@rollup/plugin-json':
     specifier: ^6.1.0
     version: 6.1.0(rollup@2.80.0)
+  '@tailwindcss/oxide-linux-x64-gnu':
+    specifier: ^4.2.2
+    version: 4.2.2
   '@types/chrome':
     specifier: 0.0.268
     version: 0.0.268
@@ -1957,8 +1960,6 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
-    dev: true
-    optional: true
 
   /@tailwindcss/oxide-linux-x64-musl@4.2.2:
     resolution: {integrity: sha512-XW3t3qwbIwiSyRCggeO2zxe3KWaEbM0/kW9e8+0XpBgyKU4ATYzcVSMKteZJ1iukJ3HgHBjbg9P5YPRCVUxlnQ==}
