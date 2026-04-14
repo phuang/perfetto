@@ -481,11 +481,12 @@ function compileScss() {
 
 function compileTailwind() {
   const src = pjoin(ROOT_DIR, 'ui/src/assets/tailwind.scss');
+  const cwd = pjoin(ROOT_DIR, 'ui');
   const dst = pjoin(cfg.outDistDir, 'tailwind.css');
   // In watch mode, don't exit(1) if scss fails. It can easily happen by
   // having a typo in the css. It will still print an error.
   const noErrCheck = !!cfg.watch;
-  const args = ['-i', src, '-o', dst];
+  const args = ['--cwd', cwd, '--input', src, '--output', dst];
   // if (!cfg.verbose) {
   //   args.unshift('--quiet');
   // }
