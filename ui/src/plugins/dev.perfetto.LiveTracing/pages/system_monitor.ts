@@ -40,7 +40,14 @@ interface StatConfig {
 const Theme = {
   colors: {
     lit: '#10b981', mid: '#f59e0b', big: '#ef4444',
-    temp: '#f97316', power: '#ec4899', fps: '#3b82f6'
+    temp: '#f97316',
+    temp_soc: '#f97316',
+    temp_gpu: '#f87171',
+    power: '#ec4899',
+    power_cpu: '#ec4899',
+    power_gpu: '#8b5cf6',
+    power_ddr: '#06b6d4',
+    fps: '#3b82f6'
   },
   styles: {
     title: "text-sm tracking-wider whitespace-nowrap font-light opacity-90",
@@ -58,15 +65,16 @@ export const CONFIG = {
     {
       id: 'temp', title: 'Temperatures (°C)', color: Theme.colors.temp,
       readouts: [
-        { id: 'temp-pkg', label: 'CPU Pkg', color: Theme.colors.temp, unit: '°C' },
-        { id: 'temp-gpu', label: 'GPU Core', color: '#8b5cf6', unit: '°C' }
+        { id: 'temp-soc', label: 'SOC', color: Theme.colors.temp_soc, unit: '°C' },
+        { id: 'temp-gpu', label: 'GPU', color: Theme.colors.temp_gpu, unit: '°C' }
       ]
     },
     {
       id: 'power', title: 'Power Consumption (mW)', color: Theme.colors.power,
       readouts: [
-        { id: 'power-pkg', label: 'SOC', color: Theme.colors.power, unit: 'mW', area: true },
-        { id: 'power-dram', label: 'DDR', color: '#06b6d4', unit: 'mW', area: true }
+        { id: 'power-cpu', label: 'CPU', color: Theme.colors.power_cpu, unit: 'mW', area: true },
+        { id: 'power-gpu', label: 'GPU', color: Theme.colors.power_gpu, unit: 'mW', area: true },
+        { id: 'power-ddr', label: 'DDR', color: Theme.colors.power_ddr, unit: 'mW', area: true }
       ]
     },
     {
@@ -228,18 +236,28 @@ export const State = {
   },
 
   async togglePause() {
+    if (!this.recordingManager) {
+      console.warn("RecordingManager is not initialized. Cannot toggle pause.");
+      return;
+    }
+
+    if (!this.liveTracingManager) {
+      console.warn("LiveTracingManager is not initialized. Cannot toggle pause.");
+      return;
+    }
+    
     this.isTracing = !this.isTracing;
 
     if (this.isTracing) {
-      const target = this.recordingManager?.currentTarget;
+      const target = this.recordingManager.currentTarget;
       if (target) {
-        await this.liveTracingManager?.start(target);
+        await this.liveTracingManager.start(target);
       } else {
         this.isTracing = false;
         console.warn("No recording target available to start live tracing.");
       }
     } else {
-      await this.liveTracingManager?.stop();
+      await this.liveTracingManager.stop();
     }
   },
 
@@ -268,19 +286,21 @@ export const State = {
     const temp = data.temp as Record<string, number>;
     const power = data.power as Record<string, number>;
     const fps = data.fps as number;
-    const eff = power.pkg > 0 ? (fps / power.pkg) : 0;
+    const eff = power.cpu > 0 ? (fps / power.cpu) : 0;
 
-    this.latestMetrics['temp-pkg'] = `${Math.round(temp.pkg)}°C`;
+    this.latestMetrics['temp-soc'] = `${Math.round(temp.soc)}°C`;
     this.latestMetrics['temp-gpu'] = `${Math.round(temp.gpu)}°C`;
-    this.latestMetrics['power-pkg'] = `${Math.round(power.pkg)}mW`;
-    this.latestMetrics['power-dram'] = `${Math.round(power.dram)}mW`;
+    this.latestMetrics['power-cpu'] = `${Math.round(power.cpu)}mW`;
+    this.latestMetrics['power-gpu'] = `${Math.round(power.gpu)}mW`;
+    this.latestMetrics['power-ddr'] = `${Math.round(power.ddr)}mW`;
     this.latestMetrics['fps'] = Math.round(fps);
     this.latestMetrics['eff'] = eff.toFixed(2).substring(0, 4);
 
-    this.seriesBuffers['temp'][0].shift(); this.seriesBuffers['temp'][0].push(temp.pkg);
+    this.seriesBuffers['temp'][0].shift(); this.seriesBuffers['temp'][0].push(temp.soc);
     this.seriesBuffers['temp'][1].shift(); this.seriesBuffers['temp'][1].push(temp.gpu);
-    this.seriesBuffers['power'][0].shift(); this.seriesBuffers['power'][0].push(power.pkg);
-    this.seriesBuffers['power'][1].shift(); this.seriesBuffers['power'][1].push(power.dram);
+    this.seriesBuffers['power'][0].shift(); this.seriesBuffers['power'][0].push(power.cpu);
+    this.seriesBuffers['power'][1].shift(); this.seriesBuffers['power'][1].push(power.gpu);
+    this.seriesBuffers['power'][2].shift(); this.seriesBuffers['power'][2].push(power.ddr);
     this.seriesBuffers['fps'][0].shift(); this.seriesBuffers['fps'][0].push(fps);
     this.seriesBuffers['eff'][0].shift(); this.seriesBuffers['eff'][0].push(eff);
 

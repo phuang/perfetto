@@ -46,8 +46,10 @@ export class LiveTracingManager {
     big: [{ load: 0, freq: 0 }],
   };
   private fpsData = 0;
-  private powerData = { cpu: 0, ddr: 0 };
-  private tempData = { pkg: 0, gpu: 0 };
+  private powerData = { cpu: 0, ddr: 0, gpu: 0 };
+  private tempData = { soc: 0, gpu: 0 };
+
+  private powerDataHistory = { cpu: 0, ddr: 0, gpu: 0 };
 
   // a data callback variable.
   private dataCallback?: (data: Record<string, unknown>) => void;
@@ -100,11 +102,19 @@ export class LiveTracingManager {
       });
     });
 
-    this.timer = window.setInterval(async () => {
-      if (this.session) {
-        await this.session.flush();
-        await this.session.readBuffers();
+    this.timer = window.setInterval(() => {
+      if (!this.session) {
+        return;
       }
+      this.session.flush().then(() => {
+        this.session?.readBuffers().then(() => {
+          console.log('LiveTracingManager: Flushed session and read buffers');
+        }).catch((e) => {
+          console.error('LiveTracingManager: Failed to read buffers', e);
+        });
+      }).catch((e) => {
+        console.error('LiveTracingManager: Failed to flush session', e);
+      });
     }, 1000);
   }
 
@@ -129,64 +139,38 @@ export class LiveTracingManager {
   }
 
   private createConfig(): protos.ITraceConfig {
-    // return {
-    //   durationMs: 0, // Continuous
-    //   flushPeriodMs: 1000,
-    //   buffers: [
-    //     {
-    //       sizeKb: 4 * 1024,
-    //       fillPolicy: protos.TraceConfig.BufferConfig.FillPolicy.RING_BUFFER,
-    //     },
-    //   ],
-    //   dataSources: [
-    //     {
-    //       config: {
-    //         name: 'linux.sys_stats',
-    //         sysStatsConfig: {
-    //           cpufreqPeriodMs: 1000,
-    //           thermalPeriodMs: 1000,
-    //           devfreqPeriodMs: 1000,
-    //           meminfoPeriodMs: 1000,
-    //         },
-    //       },
-    //     },
-    //     {
-    //       config: {
-    //         name: 'android.power',
-    //         androidPowerConfig: {
-    //           batteryPollMs: 1000,
-    //           collectPowerRails: true,
-    //           batteryCounters: [
-    //             protos.AndroidPowerConfig.BatteryCounters
-    //               .BATTERY_COUNTER_CAPACITY_PERCENT,
-    //             protos.AndroidPowerConfig.BatteryCounters.BATTERY_COUNTER_CHARGE,
-    //             protos.AndroidPowerConfig.BatteryCounters
-    //               .BATTERY_COUNTER_CURRENT,
-    //           ],
-    //         },
-    //       },
-    //     },
-    //   ],
-    // };
+    const kFillPolicy = protos.TraceConfig.BufferConfig.FillPolicy;
+    const kBuffers = [
+      {
+        sizeKb: 64 * 1024,
+        fillPolicy: kFillPolicy.RING_BUFFER,
+      },
+      // {
+      //   sizeKb: 16 * 1024,
+      //   fillPolicy: kFillPolicy.RING_BUFFER,
+      // },
+    ];
 
-    const androidConfig = {
+
+    // const kBatteryCounters = protos.AndroidPowerConfig.BatteryCounters;
+    const kAndroidConfig = {
       name: 'android.power',
       androidPowerConfig: {
-        batteryPollMs: 1000,
         collectPowerRails: true,
-        batteryCounters: [
-          protos.AndroidPowerConfig.BatteryCounters
-            .BATTERY_COUNTER_CAPACITY_PERCENT,
-          protos.AndroidPowerConfig.BatteryCounters.BATTERY_COUNTER_CHARGE,
-          protos.AndroidPowerConfig.BatteryCounters
-            .BATTERY_COUNTER_CURRENT,
-        ],
+        targetBuffer: 0,
+        // batteryPollMs: 500,
+        // batteryCounters: [
+        //   kBatteryCounters.BATTERY_COUNTER_CAPACITY_PERCENT,
+        //   kBatteryCounters.BATTERY_COUNTER_CHARGE,
+        //   kBatteryCounters.BATTERY_COUNTER_CURRENT,
+        // ],
       },
     };
 
-    const linuxFTraceConfig = {
+    const kLinuxFTraceConfig = {
       name: 'linux.ftrace',
       ftraceConfig: {
+        targetBuffer: 1,
         ftraceEvents: [
           'sched/sched_switch',
           'power/cpu_frequency',
@@ -202,28 +186,26 @@ export class LiveTracingManager {
       },
     };
 
-    const surfaceFlingerConfig = {
+    const kSurfaceFlingerConfig = {
       name: 'android.surfaceflinger.frametimeline',
+      surfaceFlingerConfig: {
+        targetBuffer: 2,
+      },
     };
 
     return {
       durationMs: 0, // Continuous
-      flushPeriodMs: 1000,
-      buffers: [
-        {
-          sizeKb: 4 * 1024,
-          fillPolicy: protos.TraceConfig.BufferConfig.FillPolicy.RING_BUFFER,
-        },
-      ],
+      flushPeriodMs: 500,
+      buffers: kBuffers,
       dataSources: [
         {
-          config: androidConfig,
+          config: kAndroidConfig,
         },
         {
-          config: linuxFTraceConfig,
+          config: kLinuxFTraceConfig,
         },
         {
-          config: surfaceFlingerConfig,
+          config: kSurfaceFlingerConfig,
         }
       ],
     };
@@ -243,7 +225,7 @@ export class LiveTracingManager {
     this.pendingParseResults.push(this.engine.parse(data));
 
     if (now - this.lastQueryTime < 1000) {
-      console.log('LiveTracingManager: feed data to engine, waiting for next flush to query');
+      // console.log('LiveTracingManager: feed data to engine, waiting for next flush to query');
       return;
     }
     this.lastQueryTime = now;
@@ -253,7 +235,7 @@ export class LiveTracingManager {
 
     // Wait for all pending parses to complete before querying.
     Promise.all(parsePromisses).then(async () => {
-      console.log('LiveTracingManager: Parsed trace data');
+      // console.log('LiveTracingManager: Parsed trace data');
       if (!this.engine) {
         console.error('LiveTracingManager: Engine not initialized');
         return;
@@ -290,12 +272,14 @@ export class LiveTracingManager {
         sql.kQueryCpuFreq,
         sql.kQueryFps,
         sql.kQueryPower,
-        sql.kQueryTemperature,];
+        sql.kQueryTemperature,
+        sql.kEnableTableDump ? sql.kQueryTableDump : sql.kQueryDummy
+      ];
 
       const queryResults: Array<Promise<QueryResult>> = queries.map(q => this.engine!.query(q));
 
       Promise.all(queryResults).then((results) => {
-        const [cpuLoadResult, cpuFreqResult, fpsResult, powerResult, thermResult] = results;
+        const [cpuLoadResult, cpuFreqResult, fpsResult, powerResult, thermResult, _tableDumpResult] = results;
         // Process CPU load results.
         {
           // console.log(`LiveTracingManager: queryResults obtaineed ${cpuLoadResult.numRows()} rows`);
@@ -355,23 +339,31 @@ export class LiveTracingManager {
         {
           const iter = powerResult.iter(sql.kPowerDataSchema);
 
-          if (iter.valid()) {
+          for (; iter.valid(); iter.next()) {
             const component = iter.component;
-            const totalAvgPowerUw = iter.total_avg_power_uw;
-            // console.log(`Total Average Power: ${totalAvgPowerUw} uW`);
-            if (component === 'Total CPU Clusters') {
-              if (totalAvgPowerUw !== null) {
-                this.powerData.cpu = totalAvgPowerUw / 1000; // Convert to mW
+            const power_mws = iter.power_uws / 1000; // Convert to mWs
+            console.log(`${component}: ${power_mws} mWS`);
+            if (component === 'CPU') {
+              if (this.powerDataHistory.cpu > 0) {
+                const powerChange = power_mws - this.powerDataHistory.cpu;
+                console.log(`CPU Power Change: ${powerChange.toFixed(2)} mWS`);
+                this.powerData.cpu = powerChange;
               }
-            } else if (component === 'Total DDR') {
-              if (totalAvgPowerUw !== null) {
-                this.powerData.ddr = totalAvgPowerUw / 1000; // Convert to mW
+              this.powerDataHistory.cpu = power_mws;
+            } else if (component === 'DDR') {
+              if (this.powerDataHistory.ddr > 0) {
+                const powerChange = power_mws - this.powerDataHistory.ddr;
+                console.log(`DDR Power Change: ${powerChange.toFixed(2)} mWS`);
+                this.powerData.ddr = powerChange;
               }
+              this.powerDataHistory.ddr = power_mws;
             } else if (component === 'GPU') {
-              // For simplicity, assign GPU power to SOC as well since we don't have a separate GPU rail in this example.
-              if (totalAvgPowerUw !== null) {
-                this.powerData.cpu = totalAvgPowerUw / 1000; // Convert to mW
+              if (this.powerDataHistory.gpu > 0) {
+                const powerChange = power_mws - this.powerDataHistory.gpu;
+                console.log(`GPU Power Change: ${powerChange.toFixed(2)} mWS`);
+                this.powerData.gpu = powerChange;
               }
+              this.powerDataHistory.gpu = power_mws;
             }
           }
         }
@@ -394,13 +386,24 @@ export class LiveTracingManager {
             temps[sensor] = avgTemp;
             // console.log(`Sensor ${sensor}: Min ${minTemp} °C, Max ${maxTemp} °C, Avg ${avgTemp} °C`);
             if (sensor === 'soc_therm' || sensor === 'soc_therm-cached') {
-              this.tempData.pkg = avgTemp;
+              this.tempData.soc = avgTemp;
             } else if (sensor === 'gpu_therm' || sensor === 'gpu_therm-cached') {
               this.tempData.gpu = avgTemp;
             }
           }
 
-          this.tempData.pkg = temps['soc_therm'] || temps['soc_therm-cached'] || this.tempData.pkg;
+          if (sql.kEnableTableDump) {
+            const iter = _tableDumpResult.iter(sql.kTableDumpDataSchema);
+
+            for (; iter.valid(); iter.next()) {
+              const component = iter.component;
+              const ts = iter.ts;
+              const power_uws = iter.power_uws;
+              console.log(`Table Dump - Component: ${component}, Timestamp: ${ts}, Power: ${power_uws} uWs`);
+            }
+          }
+
+          this.tempData.soc = temps['soc_therm'] || temps['soc_therm-cached'] || this.tempData.soc;
           this.tempData.gpu = temps['gpu_therm'] || temps['gpu_therm-cached'] || this.tempData.gpu;
 
         }
@@ -410,7 +413,7 @@ export class LiveTracingManager {
           let data: Record<string, unknown> = {
             cpu: this.cpuFreqData,
             temp: this.tempData,
-            power: { pkg: this.powerData.cpu, dram: this.powerData.ddr },
+            power: this.powerData,
             fps: this.fpsData,
           };
           this.dataCallback(data);

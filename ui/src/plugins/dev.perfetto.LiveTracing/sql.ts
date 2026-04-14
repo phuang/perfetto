@@ -83,36 +83,54 @@ export const kFpsDataSchema = {
 };
 
 export const kQueryPower = `
-  WITH RailPower AS (
-    SELECT
-      t.name as rail_name,
-      (MAX(c.value) - MIN(c.value)) / (MAX(c.ts) - MIN(c.ts)) * 1e9 AS avg_power_uw
-    FROM __intrinsic_counter c
-    JOIN __intrinsic_track t ON c.track_id = t.id
-    WHERE t.name IN (
-      'power.S13M_VDD_CPU0_uws', 
-      'power.S3M_VDD_CPU1_uws', 
-      'power.S2M_VDD_CPU2_uws',
-      'power.S2S_VDD_GPU_uws',
-      'power.rails.ddr.c',
-      'power.rails.ddr.a'
-    )
-    AND c.ts >= ${kTraceEndCounter} - 1e9  -- Last second of data
-    GROUP BY t.id
+WITH _power_component_counter AS (
+  WITH _power_max_counter AS (
+    WITH _power_counter AS (
+      SELECT
+        t.name as rail_name,
+        c.ts as ts,
+        c.value as power_uws
+      FROM __intrinsic_counter c
+      JOIN __intrinsic_track t ON c.track_id = t.id
+      WHERE t.name IN (
+        'power.S13M_VDD_CPU0_uws', 
+        'power.S3M_VDD_CPU1_uws', 
+        'power.S2M_VDD_CPU2_uws',
+        'power.S2S_VDD_GPU_uws',
+        'power.rails.ddr.c',
+        'power.rails.ddr.a'
+      )
+      AND c.ts >= (SELECT MAX(ts) FROM __intrinsic_counter) - 1e9  -- Last second of data
+  )
+  SELECT
+    rail_name,
+    ts,
+    MAX(power_uws) OVER(PARTITION BY rail_name) as power_uws
+  FROM _power_counter
+  GROUP BY rail_name
   )
   SELECT
     CASE 
-      WHEN rail_name LIKE '%CPU%' THEN 'Total CPU Clusters'
+      WHEN rail_name LIKE '%CPU%' THEN 'CPU'
       WHEN rail_name LIKE '%GPU%' THEN 'GPU'
-      WHEN rail_name LIKE '%ddr%' THEN 'Total DDR'
+      WHEN rail_name LIKE '%ddr%' THEN 'DDR'
     END AS component,
-    IIF(SUM(avg_power_uw) IS NULL, 0, SUM(avg_power_uw)) AS total_avg_power_uw
-  FROM RailPower
-  GROUP BY component;`;
+    ts,
+    power_uws
+  FROM _power_max_counter
+)
+SELECT
+  component,
+  ts,
+  SUM(power_uws) as power_uws
+FROM _power_component_counter
+GROUP BY component
+`;
 
 export const kPowerDataSchema = {
   component: STR,
-  total_avg_power_uw: NUM
+  ts: NUM,
+  power_uws: NUM
 };
 
 export const kQueryTemperature = `
@@ -138,3 +156,62 @@ export const kTemperatureDataSchema = {
   max_temp: NUM,
   avg_temp: NUM
 };
+
+export const kQueryTableDump = `
+WITH _power_component_counter AS (
+  WITH _power_max_counter AS (
+    WITH _power_counter AS (
+      SELECT
+        t.name as rail_name,
+        c.ts as ts,
+        c.value as power_uws
+      FROM __intrinsic_counter c
+      JOIN __intrinsic_track t ON c.track_id = t.id
+      WHERE t.name IN (
+        'power.S13M_VDD_CPU0_uws', 
+        'power.S3M_VDD_CPU1_uws', 
+        'power.S2M_VDD_CPU2_uws',
+        'power.S2S_VDD_GPU_uws',
+        'power.rails.ddr.c',
+        'power.rails.ddr.a'
+      )
+      AND c.ts >= (SELECT MAX(ts) FROM __intrinsic_counter) - 1e9  -- Last second of data
+  )
+  SELECT
+    rail_name,
+    ts,
+    MAX(power_uws) OVER(PARTITION BY rail_name) as power_uws
+  FROM _power_counter
+  GROUP BY rail_name
+  )
+  SELECT
+    CASE 
+      WHEN rail_name LIKE '%CPU%' THEN 'CPU'
+      WHEN rail_name LIKE '%GPU%' THEN 'GPU'
+      WHEN rail_name LIKE '%ddr%' THEN 'DDR'
+    END AS component,
+    ts,
+    power_uws
+  FROM _power_max_counter
+)
+SELECT
+  component,
+  ts,
+  SUM(power_uws) as power_uws
+FROM _power_component_counter
+GROUP BY component
+`;
+
+export const kTableDumpDataSchema = {
+  component: STR,
+  ts: NUM,
+  power_uws: NUM
+};
+
+export const kQueryDummy = 'SELECT 1 as dummy';
+
+export const kDummyDataSchema = {
+   dummy: NUM,
+};
+
+export const kEnableTableDump: boolean = true;
