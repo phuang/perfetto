@@ -151,6 +151,41 @@ class DataframeBytecodeTest : public ::testing::Test {
   StringPool string_pool_;
 };
 
+TEST_F(DataframeBytecodeTest, ShrinkFromFront) {
+  // Create an Int64 column with 5 rows: [10, 11, 12, 13, 14]
+  AdhocDataframeBuilder builder({"ts"}, &string_pool_);
+  for (int64_t i = 0; i < 5; ++i) {
+    builder.PushNonNull(0, i + 10);
+  }
+  auto df_status = std::move(builder).Build();
+  ASSERT_OK(df_status.status());
+  Dataframe df = std::move(df_status.value());
+
+  // AdhocDataframeBuilder adds _auto_id by default.
+  // Column 0 is ts, Column 1 is _auto_id.
+  EXPECT_EQ(df.row_count(), 5u);
+
+  df.ShrinkFromFront(2);
+  EXPECT_EQ(df.row_count(), 3u);
+
+  Int64Extractor extractor;
+  // Check ts[0] which was ts[2] = 12
+  df.GetCell(0, 0, extractor);
+  EXPECT_EQ(extractor.value, 12);
+
+  // Check _auto_id[0] which was 2
+  df.GetCell(0, 1, extractor);
+  EXPECT_EQ(extractor.value, 2);
+
+  // Check ts[2] which was ts[4] = 14
+  df.GetCell(2, 0, extractor);
+  EXPECT_EQ(extractor.value, 14);
+
+  // Check _auto_id[2] which was 4
+  df.GetCell(2, 1, extractor);
+  EXPECT_EQ(extractor.value, 4);
+}
+
 // Simple test case with no filters
 TEST_F(DataframeBytecodeTest, NoFilters) {
   std::vector<Column> cols = MakeColumnVector(

@@ -215,6 +215,10 @@ struct PERFETTO_EXPORT_COMPONENT Config {
   // When provided, these descriptors allow trace processor to parse custom
   // protobuf messages that are not compiled into Perfetto
   std::vector<std::string> extra_parsing_descriptors;
+
+  // When provided, trace processor will remove all rows older than
+  // (latest_ts - window_size_ns) from its internal tables.
+  uint64_t window_size_ns = 0;
 };
 
 // Represents a dynamically typed value returned by SQL.

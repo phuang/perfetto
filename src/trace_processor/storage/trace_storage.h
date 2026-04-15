@@ -1116,6 +1116,8 @@ class TraceStorage {
   const StringPool& string_pool() const { return string_pool_; }
   StringPool* mutable_string_pool() { return &string_pool_; }
 
+  void PruneHistory(int64_t cutoff_ts);
+
   // Number of interned strings in the pool. Includes the empty string w/ ID=0.
   size_t string_count() const { return string_pool_.size(); }
 

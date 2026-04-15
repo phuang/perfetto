@@ -237,6 +237,13 @@ void Rpc::ParseRpcRequest(const uint8_t* data, size_t len) {
       resp.Send(rpc_response_fn_);
       break;
     }
+    case RpcProto::TPM_FLUSH: {
+      trace_processor_->Flush();
+      Response resp(tx_seq_id_++, req_type);
+      resp->set_finalize_data_result();
+      resp.Send(rpc_response_fn_);
+      break;
+    }
     case RpcProto::TPM_QUERY_STREAMING: {
       if (!req.has_query_args()) {
         Response resp(tx_seq_id_++, req_type);
@@ -574,6 +581,9 @@ void Rpc::ResetTraceProcessor(const uint8_t* args, size_t len) {
     protozero::ConstBytes bytes = it->as_bytes();
     config.extra_parsing_descriptors.emplace_back(
         reinterpret_cast<const char*>(bytes.data), bytes.size);
+  }
+  if (reset_trace_processor_args.has_window_size_ns()) {
+    config.window_size_ns = reset_trace_processor_args.window_size_ns();
   }
   ResetTraceProcessorInternal(config);
 }

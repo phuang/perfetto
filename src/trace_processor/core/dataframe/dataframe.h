@@ -232,6 +232,9 @@ class Dataframe {
   // Clears the dataframe, removing all rows and resetting the state.
   void Clear();
 
+  // Removes the first `count` rows from the dataframe.
+  void ShrinkFromFront(uint32_t count);
+
   // Makes an index which can speed up operations on this table. Note that
   // this function does *not* actually cause the index to be added or used, it
   // just returns it. Use `AddIndex` to add the index to the dataframe.
@@ -353,7 +356,8 @@ class Dataframe {
     // Dispatch based on storage type.
     switch (data_ptr.index()) {
       case StorageType::GetTypeIndex<Id>():
-        callback.OnCell(storage_idx);
+        callback.OnCell(storage_idx +
+                        column.storage.unchecked_get<core::Id>().popped_rows);
         break;
       case StorageType::GetTypeIndex<Uint32>():
         callback.OnCell(Storage::CastDataPtr<Uint32>(data_ptr)[storage_idx]);
@@ -684,7 +688,7 @@ class Dataframe {
   PERFETTO_ALWAYS_INLINE auto GetCellUncheckedFromStorage(const C& column,
                                                           uint32_t row) const {
     if constexpr (std::is_same_v<C, Storage::Id>) {
-      return row;
+      return row + column.popped_rows;
     } else {
       return column[row];
     }

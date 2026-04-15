@@ -58,7 +58,8 @@ class Storage {
  public:
   // Storage representation for Id columns.
   struct Id {
-    uint32_t size;  // Number of rows in the column
+    uint32_t size = 0;  // Number of rows in the column
+    uint32_t popped_rows = 0; // Number of rows removed from the front
 
     static const IdDataTag* data() { return nullptr; }
   };

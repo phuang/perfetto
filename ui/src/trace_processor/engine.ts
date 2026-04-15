@@ -46,6 +46,7 @@ export interface TraceProcessorConfig {
   ftraceDropUntilAllCpusValid: boolean;
   extraParsingDescriptors?: ReadonlyArray<Uint8Array>;
   forceFullSort: boolean;
+  windowSizeNs?: number;
 }
 
 const QUERY_LOG_BUFFER_SIZE = 100;
@@ -114,6 +115,8 @@ export interface Engine {
   enableMetatrace(categories?: protos.MetatraceCategories): void;
   stopAndGetMetatrace(): Promise<protos.DisableAndReadMetatraceResult>;
 
+  flush(): Promise<void>;
+
   // Summarizer API for Data Explorer.
   // Creates a summarizer with the given ID. Returns error if ID already exists.
   createSummarizer(
@@ -158,6 +161,7 @@ export abstract class EngineBase implements Engine, Disposable {
   private rxBuf = new ProtoRingBuffer();
   private pendingParses = new Array<Deferred<void>>();
   private pendingEOFs = new Array<Deferred<void>>();
+  private pendingFlushes = new Array<Deferred<void>>();
   private pendingResetTraceProcessors = new Array<Deferred<void>>();
   private pendingQueries = new Array<WritableQueryResult>();
   private pendingRestoreTables = new Array<Deferred<void>>();
@@ -266,6 +270,16 @@ export abstract class EngineBase implements Engine, Disposable {
       case TPM.TPM_FINALIZE_TRACE_DATA: {
         const finalizeResult = assertExists(rpc.finalizeDataResult);
         const pendingPromise = assertExists(this.pendingEOFs.shift());
+        if (exists(finalizeResult.error) && finalizeResult.error.length > 0) {
+          pendingPromise.reject(finalizeResult.error);
+        } else {
+          pendingPromise.resolve();
+        }
+        break;
+      }
+      case TPM.TPM_FLUSH: {
+        const finalizeResult = assertExists(rpc.finalizeDataResult);
+        const pendingPromise = assertExists(this.pendingFlushes.shift());
         if (exists(finalizeResult.error) && finalizeResult.error.length > 0) {
           pendingPromise.reject(finalizeResult.error);
         } else {
@@ -415,6 +429,15 @@ export abstract class EngineBase implements Engine, Disposable {
     return asyncRes; // Linearize with the worker.
   }
 
+  flush(): Promise<void> {
+    const asyncRes = defer<void>();
+    this.pendingFlushes.push(asyncRes);
+    const rpc = protos.TraceProcessorRpc.create();
+    rpc.request = TPM.TPM_FLUSH;
+    this.rpcSendRequest(rpc);
+    return asyncRes;
+  }
+
   // Updates the TraceProcessor Config. This method creates a new
   // TraceProcessor instance, so it should be called before passing any trace
   // data.
@@ -426,6 +449,7 @@ export abstract class EngineBase implements Engine, Disposable {
     ftraceDropUntilAllCpusValid,
     extraParsingDescriptors,
     forceFullSort,
+    windowSizeNs,
   }: TraceProcessorConfig): Promise<void> {
     const asyncRes = defer<void>();
     this.pendingResetTraceProcessors.push(asyncRes);
@@ -451,6 +475,9 @@ export abstract class EngineBase implements Engine, Disposable {
     args.extraParsingDescriptors = extraParsingDescriptors
       ? [...extraParsingDescriptors]
       : [];
+    if (windowSizeNs !== undefined) {
+      args.windowSizeNs = windowSizeNs;
+    }
     this.rpcSendRequest(rpc);
     return asyncRes;
   }
@@ -840,6 +867,10 @@ export class EngineProxy implements Engine, Disposable {
 
   stopAndGetMetatrace(): Promise<protos.DisableAndReadMetatraceResult> {
     return this.engine.stopAndGetMetatrace();
+  }
+
+  flush(): Promise<void> {
+    return this.engine.flush();
   }
 
   createSummarizer(

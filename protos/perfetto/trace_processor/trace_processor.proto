@@ -114,6 +114,7 @@ message TraceProcessorRpc {
     TPM_UPDATE_SUMMARIZER_SPEC = 17;
     TPM_QUERY_SUMMARIZER = 18;
     TPM_DESTROY_SUMMARIZER = 19;
+    TPM_FLUSH = 20;
   }
 
   oneof type {
@@ -387,6 +388,10 @@ message ResetTraceProcessorArgs {
 
   // A list of serialized FileDescriptorSet protos.
   repeated bytes extra_parsing_descriptors = 7;
+
+  // When provided, trace processor will remove all rows older than
+  // (latest_ts - window_size_ns) from its internal tables.
+  optional uint64 window_size_ns = 8;
 }
 
 message RegisterSqlPackageArgs {

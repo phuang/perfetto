@@ -158,6 +158,18 @@ class FlexVector {
     size_ = new_size;
   }
 
+  // Removes the first `count` elements from the vector.
+  void ShrinkFromFront(uint64_t count) {
+    PERFETTO_DCHECK(count <= size_);
+    if (count == 0) {
+      return;
+    }
+    if (count < size_) {
+      memmove(slab_.data(), slab_.data() + count, (size_ - count) * sizeof(T));
+    }
+    size_ -= count;
+  }
+
   // Shrinks the memory allocated by the vector to be as small as possible while
   // still maintaining the invariants of the class.
   void shrink_to_fit() {

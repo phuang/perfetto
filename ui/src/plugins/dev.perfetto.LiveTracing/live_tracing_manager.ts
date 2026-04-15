@@ -17,7 +17,7 @@ import { RecordingTarget } from '../dev.perfetto.RecordTraceV2/interfaces/record
 import { TracingSession } from '../dev.perfetto.RecordTraceV2/interfaces/tracing_session';
 import { EvtSource } from '../../base/events';
 import { WasmEngineProxy } from '../../trace_processor/wasm_engine_proxy';
-import { QueryResult, STR } from '../../trace_processor/query_result';
+import { QueryResult, STR, NUM } from '../../trace_processor/query_result';
 import protobuf from 'protobufjs/minimal';
 import * as sql from './sql';
 
@@ -71,6 +71,9 @@ export class LiveTracingManager {
       analyzeTraceProtoContent: false,
       ftraceDropUntilAllCpusValid: false,
       forceFullSort: false,
+      // 10 seconds window.
+      // @ts-ignore
+      windowSizeNs: 10 * 1e9,
     });
 
     const config = this.createConfig();
@@ -241,6 +244,8 @@ export class LiveTracingManager {
         return;
       }
 
+      await this.engine.flush();
+
       // Check if intrinsic tables exist.
       if (!this.intrinsicTablesExist) {
         const checkTablesResult = await this.engine.tryQuery(
@@ -264,6 +269,16 @@ export class LiveTracingManager {
         if (!this.intrinsicTablesExist) {
           console.warn('LiveTracingManager: Intrinsic tables not found, live tracing data may be incomplete');
           return;
+        }
+      }
+
+
+      {
+        const kQueryRecordCount = "SELECT COUNT(*) as c FROM __intrinsic_counter";
+        const result = await this.engine!.tryQuery(kQueryRecordCount);
+        const iter = result.value?.iter({c: NUM});
+        if (iter?.valid()) {
+          console.log(`__intrinsic_counter has ${iter.c} records!`);
         }
       }
 

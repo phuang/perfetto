@@ -108,6 +108,24 @@ struct ValueVerifier : CellCallback {
   std::vector<ValueVariant> values;
 };
 
+// Extracts a single int64 value from a cell.
+struct Int64Extractor : CellCallback {
+  void OnCell(int64_t val) { value = val; }
+  PERFETTO_NORETURN void OnCell(double) {
+    PERFETTO_FATAL("Expected int64, got double");
+  }
+  PERFETTO_NORETURN void OnCell(NullTermStringView) {
+    PERFETTO_FATAL("Expected int64, got string");
+  }
+  PERFETTO_NORETURN void OnCell(std::nullptr_t) {
+    PERFETTO_FATAL("Expected int64, got null");
+  }
+  void OnCell(uint32_t val) { value = static_cast<int64_t>(val); }
+  void OnCell(int32_t val) { value = static_cast<int64_t>(val); }
+
+  int64_t value = 0;
+};
+
 inline void VerifyData(
     Dataframe& df,
     uint64_t cols_bitmap,

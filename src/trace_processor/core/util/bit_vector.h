@@ -171,6 +171,21 @@ struct BitVector {
     return static_cast<uint64_t>(PERFETTO_POPCOUNT(words_[i / 64ull]));
   }
 
+  // Returns the number of set bits in the range [0, n).
+  PERFETTO_ALWAYS_INLINE uint64_t CountSetBits(uint64_t n) const {
+    PERFETTO_DCHECK(n <= size_);
+    uint64_t count = 0;
+    uint64_t whole_words = n / 64;
+    for (uint64_t i = 0; i < whole_words; ++i) {
+      count += static_cast<uint64_t>(PERFETTO_POPCOUNT(words_[i]));
+    }
+    if (n % 64 != 0) {
+      count += static_cast<uint64_t>(
+          PERFETTO_POPCOUNT(words_[whole_words] & ((1ull << (n % 64)) - 1ull)));
+    }
+    return count;
+  }
+
   // Filters a sequence by keeping only elements whose bit is set (or not set).
   //
   // This function takes a source array and copies elements to a target array
@@ -274,6 +289,44 @@ struct BitVector {
     if (new_size % 64 != 0 && new_words > 0) {
       words_[new_words - 1] &= (1ull << (new_size % 64)) - 1;
     }
+    size_ = new_size;
+  }
+
+  // Removes the first `count` bits from the vector.
+  void ShrinkFromFront(uint64_t count) {
+    PERFETTO_DCHECK(count <= size_);
+    if (count == 0) {
+      return;
+    }
+    if (count == size_) {
+      clear();
+      return;
+    }
+
+    uint64_t word_shift = count / 64;
+    uint64_t bit_shift = count % 64;
+    uint64_t new_size = size_ - count;
+    uint64_t new_words = (new_size + 63) / 64;
+
+    if (bit_shift == 0) {
+      memmove(words_.data(), words_.data() + word_shift,
+              new_words * sizeof(uint64_t));
+    } else {
+      for (uint64_t i = 0; i < new_words; ++i) {
+        uint64_t low = words_[i + word_shift] >> bit_shift;
+        uint64_t high = (i + word_shift + 1 < words_.size())
+                            ? (words_[i + word_shift + 1] << (64 - bit_shift))
+                            : 0;
+        words_[i] = low | high;
+      }
+    }
+
+    // Clear bits past new_size in the last word.
+    if (new_size % 64 != 0 && new_words > 0) {
+      words_[new_words - 1] &= (1ull << (new_size % 64)) - 1;
+    }
+
+    words_.resize(new_words);
     size_ = new_size;
   }
 

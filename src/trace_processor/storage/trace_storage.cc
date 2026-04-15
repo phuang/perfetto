@@ -16,6 +16,7 @@
 
 #include "src/trace_processor/storage/trace_storage.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +28,7 @@
 #include "perfetto/trace_processor/basic_types.h"
 #include "src/trace_processor/core/dataframe/dataframe.h"
 #include "src/trace_processor/core/dataframe/specs.h"
+#include "src/trace_processor/core/dataframe/types.h"
 #include "src/trace_processor/tables/all_tables_fwd.h"
 #include "src/trace_processor/tables/android_tables_py.h"   // IWYU pragma: keep
 #include "src/trace_processor/tables/counter_tables_py.h"   // IWYU pragma: keep
@@ -135,6 +137,56 @@ void TraceStorage::SqlStats::RecordQueryEnd(uint32_t row, int64_t time_ended) {
   uint32_t queue_row = row - popped_queries_;
   PERFETTO_DCHECK(queue_row < queries_.size());
   times_ended_[queue_row] = time_ended;
+}
+
+namespace {
+struct TsExtractor : public dataframe::CellCallback {
+  void OnCell(int64_t val) { ts = val; }
+  PERFETTO_NORETURN void OnCell(double) {
+    PERFETTO_FATAL("ts column must be int64");
+  }
+  PERFETTO_NORETURN void OnCell(NullTermStringView) {
+    PERFETTO_FATAL("ts column must be int64");
+  }
+  PERFETTO_NORETURN void OnCell(std::nullptr_t) {
+    PERFETTO_FATAL("ts column cannot be null");
+  }
+  void OnCell(uint32_t val) { ts = static_cast<int64_t>(val); }
+  void OnCell(int32_t val) { ts = static_cast<int64_t>(val); }
+
+  int64_t ts = 0;
+};
+}  // namespace
+
+void TraceStorage::PruneHistory(int64_t cutoff_ts) {
+  for (size_t i = 0; i < tables::kTableCount; ++i) {
+    auto* table = reinterpret_cast<dataframe::Dataframe*>(
+        &tables_storage_[i * sizeof(dataframe::Dataframe)]);
+    auto ts_col_idx = table->IndexOfColumnLegacy("ts");
+    if (!ts_col_idx || table->row_count() == 0) {
+      continue;
+    }
+
+    uint32_t col = *ts_col_idx;
+    TsExtractor extractor;
+
+    // Use binary search to find the first row where ts >= cutoff_ts.
+    uint32_t low = 0;
+    uint32_t high = table->row_count();
+    while (low < high) {
+      uint32_t mid = low + (high - low) / 2;
+      table->GetCell(mid, col, extractor);
+      if (extractor.ts < cutoff_ts) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+
+    if (low > 0) {
+      table->ShrinkFromFront(low);
+    }
+  }
 }
 
 }  // namespace perfetto::trace_processor

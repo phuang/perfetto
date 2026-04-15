@@ -451,52 +451,55 @@ std::pair<int64_t, int64_t> GetTraceTimestampBoundsNs(
     const TraceStorage& storage) {
   int64_t start_ns = std::numeric_limits<int64_t>::max();
   int64_t end_ns = 0;
-  for (auto it = storage.ftrace_event_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.sched_slice_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts() + it.dur(), end_ns);
-  }
-  for (auto it = storage.counter_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.slice_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts() + it.dur(), end_ns);
-  }
-  for (auto it = storage.heap_profile_allocation_table().IterateRows(); it;
-       ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.thread_state_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts() + it.dur(), end_ns);
-  }
-  for (auto it = storage.android_log_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.heap_graph_object_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.graph_sample_ts(), start_ns);
-    end_ns = std::max(it.graph_sample_ts(), end_ns);
-  }
-  for (auto it = storage.perf_sample_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.instruments_sample_table().IterateRows(); it; ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
-  for (auto it = storage.cpu_profile_stack_sample_table().IterateRows(); it;
-       ++it) {
-    start_ns = std::min(it.ts(), start_ns);
-    end_ns = std::max(it.ts(), end_ns);
-  }
+
+  auto update_bounds =
+      [&](const auto& table, const char* ts_col_name = "ts") {
+        const auto& df = reinterpret_cast<const dataframe::Dataframe&>(table);
+        if (df.row_count() == 0) {
+          return;
+        }
+        auto ts_col_idx = df.IndexOfColumnLegacy(ts_col_name);
+        if (!ts_col_idx) {
+          return;
+        }
+        uint32_t col = *ts_col_idx;
+        struct Extractor : public dataframe::CellCallback {
+          void OnCell(int64_t val) { ts = val; }
+          void OnCell(uint32_t val) { ts = static_cast<int64_t>(val); }
+          void OnCell(int32_t val) { ts = static_cast<int64_t>(val); }
+          void OnCell(double) {}
+          void OnCell(NullTermStringView) {}
+          void OnCell(std::nullptr_t) {}
+          int64_t ts = 0;
+        } extractor;
+
+        df.GetCell(0, col, extractor);
+        start_ns = std::min(extractor.ts, start_ns);
+
+        df.GetCell(df.row_count() - 1, col, extractor);
+        int64_t table_end = extractor.ts;
+
+        // For tables with duration, we check ts + dur for the end.
+        auto dur_col_idx = df.IndexOfColumnLegacy("dur");
+        if (dur_col_idx) {
+          df.GetCell(df.row_count() - 1, *dur_col_idx, extractor);
+          table_end += extractor.ts;
+        }
+        end_ns = std::max(table_end, end_ns);
+      };
+
+  update_bounds(storage.ftrace_event_table());
+  update_bounds(storage.sched_slice_table());
+  update_bounds(storage.counter_table());
+  update_bounds(storage.slice_table());
+  update_bounds(storage.heap_profile_allocation_table());
+  update_bounds(storage.thread_state_table());
+  update_bounds(storage.android_log_table());
+  update_bounds(storage.heap_graph_object_table(), "graph_sample_ts");
+  update_bounds(storage.perf_sample_table());
+  update_bounds(storage.instruments_sample_table());
+  update_bounds(storage.cpu_profile_stack_sample_table());
+
   if (start_ns == std::numeric_limits<int64_t>::max()) {
     return std::make_pair(0, 0);
   }
@@ -693,6 +696,14 @@ base::Status TraceProcessorImpl::Parse(TraceBlobView blob) {
 void TraceProcessorImpl::Flush() {
   TraceProcessorStorageImpl::Flush();
   CacheBoundsAndBuildTable();
+
+  if (config_.window_size_ns > 0 && cached_trace_bounds_.second > 0) {
+    int64_t cutoff_ts =
+        cached_trace_bounds_.second - static_cast<int64_t>(config_.window_size_ns);
+    context()->storage->PruneHistory(cutoff_ts);
+    // Re-cache bounds after pruning.
+    CacheBoundsAndBuildTable();
+  }
 }
 
 base::Status TraceProcessorImpl::NotifyEndOfFile() {

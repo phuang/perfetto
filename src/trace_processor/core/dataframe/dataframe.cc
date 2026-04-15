@@ -151,6 +151,91 @@ void Dataframe::Clear() {
   ++non_column_mutations_;
 }
 
+void Dataframe::ShrinkFromFront(uint32_t count) {
+  PERFETTO_DCHECK(!finalized_);
+  if (count == 0) {
+    return;
+  }
+  if (count >= row_count_) {
+    Clear();
+    return;
+  }
+
+  // Clear all indexes as they are invalidated by shrinking.
+  indexes_.clear();
+
+  for (const auto& c : columns_) {
+    // Determine how many elements to remove from the front of the storage.
+    uint32_t storage_remove_count = 0;
+    switch (c->null_storage.nullability().index()) {
+      case Nullability::GetTypeIndex<NonNull>():
+        storage_remove_count = count;
+        break;
+      case Nullability::GetTypeIndex<SparseNull>():
+      case Nullability::GetTypeIndex<SparseNullWithPopcountUntilFinalization>():
+      case Nullability::GetTypeIndex<SparseNullWithPopcountAlways>(): {
+        auto& null = c->null_storage.unchecked_get<SparseNull>();
+        storage_remove_count = static_cast<uint32_t>(null.bit_vector.CountSetBits(count));
+        null.bit_vector.ShrinkFromFront(count);
+        // Recompute prefix popcount for the remaining rows.
+        null.prefix_popcount_for_cell_get.clear();
+        for (uint32_t i = 0; i < null.bit_vector.size(); i += 64) {
+          uint32_t prefix_popcount =
+              i == 0 ? 0
+                     : static_cast<uint32_t>(
+                           null.prefix_popcount_for_cell_get.back() +
+                           null.bit_vector.count_set_bits_in_word(i - 64));
+          null.prefix_popcount_for_cell_get.push_back(prefix_popcount);
+        }
+        break;
+      }
+      case Nullability::GetTypeIndex<DenseNull>(): {
+        auto& null = c->null_storage.unchecked_get<DenseNull>();
+        null.bit_vector.ShrinkFromFront(count);
+        storage_remove_count = count;
+        break;
+      }
+      default:
+        PERFETTO_FATAL("Invalid nullability type");
+    }
+
+    // Shrink the storage.
+    switch (c->storage.type().index()) {
+      case StorageType::GetTypeIndex<Uint32>():
+        c->storage.unchecked_get<core::Uint32>().ShrinkFromFront(
+            storage_remove_count);
+        break;
+      case StorageType::GetTypeIndex<Int32>():
+        c->storage.unchecked_get<core::Int32>().ShrinkFromFront(
+            storage_remove_count);
+        break;
+      case StorageType::GetTypeIndex<Int64>():
+        c->storage.unchecked_get<core::Int64>().ShrinkFromFront(
+            storage_remove_count);
+        break;
+      case StorageType::GetTypeIndex<Double>():
+        c->storage.unchecked_get<core::Double>().ShrinkFromFront(
+            storage_remove_count);
+        break;
+      case StorageType::GetTypeIndex<String>():
+        c->storage.unchecked_get<core::String>().ShrinkFromFront(
+            storage_remove_count);
+        break;
+      case StorageType::GetTypeIndex<Id>(): {
+        auto& id_storage = c->storage.unchecked_get<core::Id>();
+        id_storage.size -= count;
+        id_storage.popped_rows += count;
+        break;
+      }
+      default:
+        PERFETTO_FATAL("Invalid storage type");
+    }
+    ++c->mutations;
+  }
+  row_count_ -= count;
+  ++non_column_mutations_;
+}
+
 base::StatusOr<Index> Dataframe::BuildIndex(const uint32_t* columns_start,
                                             const uint32_t* columns_end) const {
   std::vector<uint32_t> cols(columns_start, columns_end);
