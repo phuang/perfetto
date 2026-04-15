@@ -241,7 +241,7 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
           high = mid;
         }
       }
-      if (low > 0) {
+      if (low > 1000 || low > arg_table->row_count() / 20) {
         arg_table->ShrinkFromFront(low);
       }
     }

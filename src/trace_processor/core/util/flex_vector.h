@@ -131,10 +131,10 @@ class FlexVector {
   }
 
   void ShrinkFromFront(uint64_t count) {
-    PERFETTO_DCHECK(count <= size_);
     if (count == 0) {
       return;
     }
+    PERFETTO_CHECK(count <= size_);
     if (count < size_) {
       memmove(slab_.data(), slab_.data() + count, (size_ - count) * sizeof(T));
     } else {

@@ -206,32 +206,37 @@ void Dataframe::ShrinkFromFront(uint32_t count) {
     switch (c->storage.type().index()) {
       case StorageType::GetTypeIndex<Uint32>(): {
         auto& s = c->storage.unchecked_get<core::Uint32>();
-        s.ShrinkFromFront(
-            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
+        uint32_t to_remove = std::min(storage_remove_count, static_cast<uint32_t>(s.size()));
+        PERFETTO_DCHECK(to_remove == storage_remove_count || row_count_ == s.size());
+        s.ShrinkFromFront(to_remove);
         break;
       }
       case StorageType::GetTypeIndex<Int32>(): {
         auto& s = c->storage.unchecked_get<core::Int32>();
-        s.ShrinkFromFront(
-            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
+        uint32_t to_remove = std::min(storage_remove_count, static_cast<uint32_t>(s.size()));
+        PERFETTO_DCHECK(to_remove == storage_remove_count || row_count_ == s.size());
+        s.ShrinkFromFront(to_remove);
         break;
       }
       case StorageType::GetTypeIndex<Int64>(): {
         auto& s = c->storage.unchecked_get<core::Int64>();
-        s.ShrinkFromFront(
-            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
+        uint32_t to_remove = std::min(storage_remove_count, static_cast<uint32_t>(s.size()));
+        PERFETTO_DCHECK(to_remove == storage_remove_count || row_count_ == s.size());
+        s.ShrinkFromFront(to_remove);
         break;
       }
       case StorageType::GetTypeIndex<Double>(): {
         auto& s = c->storage.unchecked_get<core::Double>();
-        s.ShrinkFromFront(
-            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
+        uint32_t to_remove = std::min(storage_remove_count, static_cast<uint32_t>(s.size()));
+        PERFETTO_DCHECK(to_remove == storage_remove_count || row_count_ == s.size());
+        s.ShrinkFromFront(to_remove);
         break;
       }
       case StorageType::GetTypeIndex<String>(): {
         auto& s = c->storage.unchecked_get<core::String>();
-        s.ShrinkFromFront(
-            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
+        uint32_t to_remove = std::min(storage_remove_count, static_cast<uint32_t>(s.size()));
+        PERFETTO_DCHECK(to_remove == storage_remove_count || row_count_ == s.size());
+        s.ShrinkFromFront(to_remove);
         break;
       }
       case StorageType::GetTypeIndex<Id>(): {

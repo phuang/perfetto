@@ -242,6 +242,9 @@ SqlSource::Node SqlSource::Node::Substr(uint32_t offset, uint32_t len) const {
     uint32_t nested_start = bounded_start - rewrite.rewritten_sql_start;
     uint32_t nested_len = bounded_end - bounded_start;
 
+    PERFETTO_DCHECK(rewrite.original_sql_start >= original_offset_start);
+    PERFETTO_DCHECK(rewrite.original_sql_end >= original_offset_start);
+
     new_rewrites.push_back(Rewrite{
         rewrite.original_sql_start - original_offset_start,
         rewrite.original_sql_end - original_offset_start,

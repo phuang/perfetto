@@ -52,7 +52,7 @@ TEST(FlexVectorTest, PushBack) {
 // Test automatic capacity growth
 TEST(FlexVectorTest, CapacityGrowth) {
   // Start with small capacity
-  constexpr size_t kInitialCapacity = 64;
+  constexpr size_t kInitialCapacity = 1024;
   auto vec = FlexVector<int>::CreateWithCapacity(kInitialCapacity);
 
   EXPECT_EQ(vec.capacity(), kInitialCapacity);
@@ -67,8 +67,8 @@ TEST(FlexVectorTest, CapacityGrowth) {
   // Add one more element to trigger resize
   vec.push_back(100);
 
-  // Capacity should have doubled
-  EXPECT_GE(vec.capacity(), kInitialCapacity * 2);
+  // Capacity should have increased by kCapacityMultiple
+  EXPECT_GE(vec.capacity(), kInitialCapacity + 1024);
   EXPECT_EQ(vec.size(), kInitialCapacity + 1);
 
   // Verify all elements preserved correctly after resize
@@ -78,7 +78,7 @@ TEST(FlexVectorTest, CapacityGrowth) {
   EXPECT_EQ(vec[kInitialCapacity], 100);
 }
 
-// Test that capacity always grows to at least 64
+// Test that capacity always grows to at least 1024
 TEST(FlexVectorTest, MinimumCapacityGrowth) {
   // Start with capacity 1
   auto vec = FlexVector<int>::CreateWithCapacity(1);
@@ -86,10 +86,10 @@ TEST(FlexVectorTest, MinimumCapacityGrowth) {
   vec.push_back(42);
   EXPECT_EQ(vec.size(), 1u);
 
-  // This should trigger growth to at least 64, not just doubling to 2
+  // This should trigger growth to at least 1024
   vec.push_back(43);
 
-  EXPECT_GE(vec.capacity(), 64u);
+  EXPECT_GE(vec.capacity(), 1024u);
   EXPECT_EQ(vec[0], 42);
   EXPECT_EQ(vec[1], 43);
 }
