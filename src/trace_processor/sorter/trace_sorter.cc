@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
+#include "src/trace_processor/sorter/trace_sorter.h"
+
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <limits>
 #include <memory>
+#include <utility>
 
+#include "perfetto/base/compiler.h"
 #include "perfetto/base/logging.h"
-#include "perfetto/public/compiler.h"
-#include "src/trace_processor/sorter/trace_sorter.h"
+#include "perfetto/ext/base/circular_queue.h"
+#include "perfetto/ext/base/utils.h"
 #include "src/trace_processor/sorter/trace_token_buffer.h"
 #include "src/trace_processor/storage/stats.h"
 #include "src/trace_processor/types/trace_processor_context.h"
@@ -40,14 +41,7 @@ TraceSorter::TraceSorter(TraceProcessorContext* context,
       event_handling_(event_handling) {}
 
 TraceSorter::~TraceSorter() {
-  // If trace processor encountered a fatal error, it's possible for some events
-  // to have been pushed without evicting them by pushing to the next stage. Do
-  // that now.
-  for (auto& queue : queues_) {
-    for (const auto& event : queue.events_) {
-      queue.sink->OnDiscardedEvent(this, GetTokenBufferId(event));
-    }
-  }
+  ExtractEventsForced();
 }
 
 bool TraceSorter::SetSortingMode(SortingMode sorting_mode) {
@@ -69,14 +63,23 @@ bool TraceSorter::SetSortingMode(SortingMode sorting_mode) {
 }
 
 void TraceSorter::Queue::Sort(TraceTokenBuffer& buffer, bool use_slow_sorting) {
-  PERFETTO_DCHECK(needs_sorting());
-  PERFETTO_DCHECK(sort_start_idx_ < events_.size());
+  if (events_.empty() || !needs_sorting()) {
+    return;
+  }
 
-  // If sort_min_ts_ has been set, it will no long be max_int, and so will be
-  // smaller than max_ts_.
-  PERFETTO_DCHECK(sort_min_ts_ < std::numeric_limits<int64_t>::max());
-
-  // We know that all events between [0, sort_start_idx_] are sorted. Within
+  // The first |sort_start_idx_| elements are already sorted.
+  // The elements after that need to be sorted.
+  //
+  // In the common case, the elements are mostly sorted with only few elements
+  // slightly out of order. We can use this property to optimize sorting.
+  // Instead of sorting the whole range, we can identify the minimum timestamp
+  // in the unsorted range and only re-sort from where that timestamp should
+  // have been.
+  //
+  // We already have |sort_min_ts_| which is the minimum timestamp in the
+  // unsorted range.
+  //
+  // To find the first element that needs to be re-sorted because it is after
   // this range, perform a bound search and find the iterator for the min
   // timestamp that broke the monotonicity. Re-sort from there to the end.
   auto sort_end = events_.begin() + static_cast<ssize_t>(sort_start_idx_);
@@ -113,20 +116,8 @@ void TraceSorter::Queue::Sort(TraceTokenBuffer& buffer, bool use_slow_sorting) {
 // timestamp order. This function is a "extract min from N sorted queues", with
 // some little cleverness: we know that events tend to be bursty, so events are
 // not going to be randomly distributed on the N |queues_|.
-// Upon each iteration this function finds the first two queues (if any) that
-// have the oldest events, and extracts events from the 1st until hitting the
-// min_ts of the 2nd. Imagine the queues are as follows:
 //
-//  q0           {min_ts: 10  max_ts: 30}
-//  q1    {min_ts:5              max_ts: 35}
-//  q2              {min_ts: 12    max_ts: 40}
-//
-// We know that we can extract all events from q1 until we hit ts=10 without
-// looking at any other queue. After hitting ts=10, we need to re-look to all of
-// them to figure out the next min-event.
-// There are more suitable data structures to do this (e.g. keeping a min-heap
-// to avoid re-scanning all the queues all the times) but doesn't seem worth it.
-// With Android traces (that have 8 CPUs) this function accounts for ~1-3% cpu
+// Performance-wise, this function is a major contributor to the parsing
 // time in a profiler.
 void TraceSorter::SortAndExtractEventsUntilAllocId(
     BumpAllocator::AllocId limit_alloc_id) {
@@ -216,10 +207,6 @@ void TraceSorter::SortAndExtractEventsUntilAllocId(
     events.erase_front(num_extracted);
     events.shrink_to_fit();
 
-    // Since we likely just removed a bunch of items try to reduce the memory
-    // usage of the token buffer.
-    token_buffer_.FreeMemory();
-
     // Update the queue timestamps to reflect the bounds after extraction.
     if (events.empty()) {
       queue.min_ts_ = kTsMax;
@@ -228,6 +215,11 @@ void TraceSorter::SortAndExtractEventsUntilAllocId(
       queue.min_ts_ = queue.events_.front().ts;
     }
   }  // for(;;)
+
+  // Try to reduce memory usage once we are done with all extractions.
+  // This must be done outside the loop because Queue A might free chunks 
+  // that are still needed by Queue B.
+  token_buffer_.FreeMemory();
 }
 
 TraceSorter::UntypedSink::~UntypedSink() = default;

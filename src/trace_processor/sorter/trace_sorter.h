@@ -128,13 +128,9 @@ class TraceSorter {
   bool SetSortingMode(SortingMode sorting_mode);
 
   void ExtractEventsForced() {
-    BumpAllocator::AllocId end_id = token_buffer_.PastTheEndAllocId();
-    SortAndExtractEventsUntilAllocId(end_id);
-    for (auto& queue : queues_) {
-      queue.events_ = base::CircularQueue<TimestampedEvent>();
-    }
+    SortAndExtractEventsUntilAllocId(token_buffer_.PastTheEndAllocId());
 
-    alloc_id_for_extraction_ = end_id;
+    alloc_id_for_extraction_ = token_buffer_.PastTheEndAllocId();
     flushes_since_extraction_ = 0;
   }
 

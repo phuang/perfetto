@@ -469,7 +469,7 @@ std::pair<int64_t, int64_t> GetTraceTimestampBoundsNs(
           void OnCell(int32_t val) { ts = static_cast<int64_t>(val); }
           void OnCell(double) {}
           void OnCell(NullTermStringView) {}
-          void OnCell(std::nullptr_t) {}
+          void OnCell(std::nullptr_t) { ts = 0; }
           int64_t ts = 0;
         } extractor;
 

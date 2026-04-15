@@ -148,8 +148,10 @@ struct TsExtractor : public dataframe::CellCallback {
   PERFETTO_NORETURN void OnCell(NullTermStringView) {
     PERFETTO_FATAL("ts column must be int64");
   }
-  PERFETTO_NORETURN void OnCell(std::nullptr_t) {
-    PERFETTO_FATAL("ts column cannot be null");
+  void OnCell(std::nullptr_t) {
+    // Treat null as 0. This is important when reusing this extractor
+    // for the "dur" column which can be null.
+    ts = 0;
   }
   void OnCell(uint32_t val) { ts = static_cast<int64_t>(val); }
   void OnCell(int32_t val) { ts = static_cast<int64_t>(val); }
@@ -185,7 +187,9 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
       }
     }
 
-    if (low > 0) {
+    // Only shrink if we are pruning a significant number of rows.
+    // This avoids clearing SQL indexes (which is expensive) too frequently.
+    if (low > 0 && (low > 1000 || low > table->row_count() / 20)) {
       table->ShrinkFromFront(low);
     }
   };
