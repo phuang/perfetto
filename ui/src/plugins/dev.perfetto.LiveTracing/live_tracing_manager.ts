@@ -249,7 +249,7 @@ export class LiveTracingManager {
       // Check if intrinsic tables exist.
       if (!this.intrinsicTablesExist) {
         const checkTablesResult = await this.engine.tryQuery(
-          "SELECT name FROM sqlite_master WHERE name LIKE '%counter%' OR name LIKE '%track%';"
+          "SELECT name FROM sqlite_master WHERE name LIKE '%__intrinsic_%';"
         );
 
         if (!checkTablesResult.ok) {
@@ -259,11 +259,11 @@ export class LiveTracingManager {
 
         const tables = new Set<string>();
         const tableIt = checkTablesResult.value.iter({ name: STR });
-        console.log(`LiveTracingManager: Detected intrinsic tables: ${Array.from(tables).join(', ')}`);
 
         for (; tableIt.valid(); tableIt.next()) {
           tables.add(tableIt.name);
         }
+        console.log(`LiveTracingManager: Detected intrinsic tables: ${Array.from(tables).join(', ')}`);
 
         this.intrinsicTablesExist = tables.has('__intrinsic_track') && tables.has('__intrinsic_counter');
         if (!this.intrinsicTablesExist) {
@@ -324,11 +324,13 @@ export class LiveTracingManager {
           // console.log(`LiveTracingManager: queryResults obtaineed ${cpuLoadResult.numRows()} rows`);
           const iter = cpuLoadResult.iter(sql.kCpuLoadDataSchema);
 
+          let totalLoad = 0;
+          let cpuCount = 0;
           for (; iter.valid(); iter.next()) {
             const cpu = iter.cpu;
-            // const busyMs = iter.busy_ms;
             const loadPercent = iter.load_percent;
-            // console.log(`CPU ${cpu}: Busy ${busyMs} ms, Load ${loadPercent}%`);
+            totalLoad += loadPercent;
+            cpuCount++;
             if (cpu < 2) {
               this.cpuFreqData.little[cpu].load = loadPercent;
             } else if (cpu < 6) {
@@ -336,6 +338,9 @@ export class LiveTracingManager {
             } else {
               this.cpuFreqData.big[cpu - 6].load = loadPercent;
             }
+          }
+          if (cpuCount > 0) {
+            console.log(`LiveTracingManager: Avg CPU Load: ${(totalLoad / cpuCount).toFixed(2)}% across ${cpuCount} CPUs`);
           }
         }
 
@@ -347,10 +352,6 @@ export class LiveTracingManager {
           for (; iter.valid(); iter.next()) {
             const cpu = iter.cpu;
             const avgFreq = iter.avg_freq / 1000000; // Convert to GHz
-            // const lastFreq = iter.last_freq / 1000000; // Convert to GHz
-            // const lastTs = iter.last_ts;
-            // console.log(`CPU ${cpu}: Frequency ${avgFreq} GHz at ${lastTs} ms`);
-            // this.lastQueryTs = lastTs
             if (cpu < 2) {
               this.cpuFreqData.little[cpu].freq = avgFreq;
             } else if (cpu < 6) {
@@ -367,9 +368,7 @@ export class LiveTracingManager {
 
           if (iter.valid()) {
             const fps = iter.fps;
-            // const avgFrameDurMs = iter.avg_frame_dur_ms;
-            // const capturedIntervalNs = iter.captured_interval_ns;
-            // console.log(`FPS: ${fps}`);
+            console.log(`LiveTracingManager: FPS: ${fps.toFixed(1)}`);
             this.fpsData = fps;
           }
         }
@@ -419,11 +418,9 @@ export class LiveTracingManager {
           };
           for (; iter.valid(); iter.next()) {
             const sensor = iter.sensor;
-            // const minTemp = iter.min_temp;
-            // const maxTemp = iter.max_temp;
             const avgTemp = iter.avg_temp;
             temps[sensor] = avgTemp;
-            // console.log(`Sensor ${sensor}: Min ${minTemp} °C, Max ${maxTemp} °C, Avg ${avgTemp} °C`);
+            console.log(`LiveTracingManager: Sensor ${sensor}: Avg ${avgTemp.toFixed(1)} °C`);
             if (sensor === 'soc_therm' || sensor === 'soc_therm-cached') {
               this.tempData.soc = avgTemp;
             } else if (sensor === 'gpu_therm' || sensor === 'gpu_therm-cached') {
