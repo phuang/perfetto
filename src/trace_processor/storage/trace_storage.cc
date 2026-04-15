@@ -158,11 +158,24 @@ struct TsExtractor : public dataframe::CellCallback {
 
   int64_t ts = 0;
 };
+
+struct IdExtractor : public dataframe::CellCallback {
+  void OnCell(int64_t val) { id = static_cast<uint32_t>(val); }
+  void OnCell(double) {}
+  void OnCell(NullTermStringView) {}
+  void OnCell(std::nullptr_t) { id = 0; }
+  void OnCell(uint32_t val) { id = val; }
+  void OnCell(int32_t val) { id = static_cast<uint32_t>(val); }
+
+  uint32_t id = 0;
+};
 }  // namespace
 
 void TraceStorage::PruneHistory(int64_t cutoff_ts) {
+  uint32_t max_removed_arg_set_id = 0;
+
   // Only prune core tables that are known to grow large and have a "ts" column.
-  auto prune_one = [cutoff_ts](auto* table_ptr) {
+  auto prune_one = [cutoff_ts, &max_removed_arg_set_id](auto* table_ptr) {
     auto* table = reinterpret_cast<dataframe::Dataframe*>(table_ptr);
     auto ts_col_idx = table->IndexOfColumnLegacy("ts");
     if (!ts_col_idx || table->row_count() == 0) {
@@ -187,10 +200,19 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
       }
     }
 
-    // Only shrink if we are pruning a significant number of rows.
-    // This avoids clearing SQL indexes (which is expensive) too frequently.
-    if (low > 0 && (low > 1000 || low > table->row_count() / 20)) {
-      table->ShrinkFromFront(low);
+    if (low > 0) {
+      auto arg_set_id_col_idx = table->IndexOfColumnLegacy("arg_set_id");
+      if (arg_set_id_col_idx) {
+        IdExtractor id_extractor;
+        table->GetCell(low - 1, *arg_set_id_col_idx, id_extractor);
+        max_removed_arg_set_id = std::max(max_removed_arg_set_id, id_extractor.id);
+      }
+
+      // Only shrink if we are pruning a significant number of rows.
+      // This avoids clearing SQL indexes (which is expensive) too frequently.
+      if (low > 1000 || low > table->row_count() / 20) {
+        table->ShrinkFromFront(low);
+      }
     }
   };
 
@@ -198,6 +220,32 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
   prune_one(mutable_table<tables::CounterTable>());
   prune_one(mutable_table<tables::ThreadStateTable>());
   prune_one(mutable_table<tables::FtraceEventTable>());
+  prune_one(mutable_table<tables::SchedSliceTable>());
+  prune_one(mutable_table<tables::AndroidLogTable>());
+  prune_one(mutable_table<tables::HeapProfileAllocationTable>());
+
+  if (max_removed_arg_set_id > 0) {
+    auto* arg_table = reinterpret_cast<dataframe::Dataframe*>(mutable_arg_table());
+    auto arg_set_id_col_idx = arg_table->IndexOfColumnLegacy("arg_set_id");
+    if (arg_set_id_col_idx && arg_table->row_count() > 0) {
+      uint32_t col = *arg_set_id_col_idx;
+      IdExtractor id_extractor;
+      uint32_t low = 0;
+      uint32_t high = arg_table->row_count();
+      while (low < high) {
+        uint32_t mid = low + (high - low) / 2;
+        arg_table->GetCell(mid, col, id_extractor);
+        if (id_extractor.id <= max_removed_arg_set_id) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      if (low > 0) {
+        arg_table->ShrinkFromFront(low);
+      }
+    }
+  }
 }
 
 }  // namespace perfetto::trace_processor

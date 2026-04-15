@@ -175,7 +175,8 @@ void Dataframe::ShrinkFromFront(uint32_t count) {
       case Nullability::GetTypeIndex<SparseNullWithPopcountUntilFinalization>():
       case Nullability::GetTypeIndex<SparseNullWithPopcountAlways>(): {
         auto& null = c->null_storage.unchecked_get<SparseNull>();
-        storage_remove_count = static_cast<uint32_t>(null.bit_vector.CountSetBits(count));
+        storage_remove_count =
+            static_cast<uint32_t>(null.bit_vector.CountSetBits(count));
         null.bit_vector.ShrinkFromFront(count);
         // Recompute prefix popcount if it was already present.
         if (!null.prefix_popcount_for_cell_get.empty()) {
@@ -203,30 +204,41 @@ void Dataframe::ShrinkFromFront(uint32_t count) {
 
     // Shrink the storage.
     switch (c->storage.type().index()) {
-      case StorageType::GetTypeIndex<Uint32>():
-        c->storage.unchecked_get<core::Uint32>().ShrinkFromFront(
-            storage_remove_count);
+      case StorageType::GetTypeIndex<Uint32>(): {
+        auto& s = c->storage.unchecked_get<core::Uint32>();
+        s.ShrinkFromFront(
+            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
         break;
-      case StorageType::GetTypeIndex<Int32>():
-        c->storage.unchecked_get<core::Int32>().ShrinkFromFront(
-            storage_remove_count);
+      }
+      case StorageType::GetTypeIndex<Int32>(): {
+        auto& s = c->storage.unchecked_get<core::Int32>();
+        s.ShrinkFromFront(
+            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
         break;
-      case StorageType::GetTypeIndex<Int64>():
-        c->storage.unchecked_get<core::Int64>().ShrinkFromFront(
-            storage_remove_count);
+      }
+      case StorageType::GetTypeIndex<Int64>(): {
+        auto& s = c->storage.unchecked_get<core::Int64>();
+        s.ShrinkFromFront(
+            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
         break;
-      case StorageType::GetTypeIndex<Double>():
-        c->storage.unchecked_get<core::Double>().ShrinkFromFront(
-            storage_remove_count);
+      }
+      case StorageType::GetTypeIndex<Double>(): {
+        auto& s = c->storage.unchecked_get<core::Double>();
+        s.ShrinkFromFront(
+            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
         break;
-      case StorageType::GetTypeIndex<String>():
-        c->storage.unchecked_get<core::String>().ShrinkFromFront(
-            storage_remove_count);
+      }
+      case StorageType::GetTypeIndex<String>(): {
+        auto& s = c->storage.unchecked_get<core::String>();
+        s.ShrinkFromFront(
+            std::min(storage_remove_count, static_cast<uint32_t>(s.size())));
         break;
+      }
       case StorageType::GetTypeIndex<Id>(): {
         auto& id_storage = c->storage.unchecked_get<core::Id>();
-        id_storage.size -= count;
-        id_storage.popped_rows += count;
+        uint32_t to_remove = std::min(count, id_storage.size);
+        id_storage.size -= to_remove;
+        id_storage.popped_rows += to_remove;
         break;
       }
       default:

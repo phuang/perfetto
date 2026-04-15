@@ -179,7 +179,7 @@ struct BitVector {
     for (uint64_t i = 0; i < whole_words; ++i) {
       count += static_cast<uint64_t>(PERFETTO_POPCOUNT(words_[i]));
     }
-    if (n % 64 != 0) {
+    if (n % 64 != 0 && whole_words < words_.size()) {
       count += static_cast<uint64_t>(
           PERFETTO_POPCOUNT(words_[whole_words] & ((1ull << (n % 64)) - 1ull)));
     }

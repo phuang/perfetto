@@ -140,7 +140,7 @@ class Dataframe {
 
   // Returns true if the column at `column_idx` supports random access (GetCell).
   bool SupportsRandomAccess(uint32_t column_idx) const {
-    const auto& column = *columns_[column_idx];
+    const auto& column = *column_ptrs_[column_idx];
     switch (column.null_storage.nullability().index()) {
       case Nullability::GetTypeIndex<NonNull>():
       case Nullability::GetTypeIndex<DenseNull>():
@@ -155,6 +155,9 @@ class Dataframe {
         return false;
     }
   }
+
+  // Shrinks the dataframe from the front by removing `count` rows.
+  void ShrinkFromFront(uint32_t count);
 
   // Adds a new row to the dataframe with the specified values.
   //
@@ -249,9 +252,6 @@ class Dataframe {
 
   // Clears the dataframe, removing all rows and resetting the state.
   void Clear();
-
-  // Removes the first `count` rows from the dataframe.
-  void ShrinkFromFront(uint32_t count);
 
   // Makes an index which can speed up operations on this table. Note that
   // this function does *not* actually cause the index to be added or used, it
