@@ -168,6 +168,9 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
     }
 
     uint32_t col = *ts_col_idx;
+    if (!table->SupportsRandomAccess(col)) {
+      continue;
+    }
     TsExtractor extractor;
 
     // Use binary search to find the first row where ts >= cutoff_ts.

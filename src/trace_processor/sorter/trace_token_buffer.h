@@ -107,12 +107,12 @@ class TraceTokenBuffer {
 
  private:
   struct BlobWithOffset {
-    TraceBlob* blob;
+    RefPtr<TraceBlob> blob;
     size_t offset_in_blob;
   };
   using InternedIndex = size_t;
   using BlobWithOffsets = std::vector<BlobWithOffset>;
-  using SequenceStates = std::vector<PacketSequenceStateGeneration*>;
+  using SequenceStates = std::vector<RefPtr<PacketSequenceStateGeneration>>;
 
   // Functions to intern TraceBlob and PacketSequenceStateGeneration: as these
   // are often shared between packets, we can significantly reduce memory use

@@ -138,6 +138,24 @@ class Dataframe {
   Dataframe(Dataframe&&) = default;
   Dataframe& operator=(Dataframe&&) = default;
 
+  // Returns true if the column at `column_idx` supports random access (GetCell).
+  bool SupportsRandomAccess(uint32_t column_idx) const {
+    const auto& column = *columns_[column_idx];
+    switch (column.null_storage.nullability().index()) {
+      case Nullability::GetTypeIndex<NonNull>():
+      case Nullability::GetTypeIndex<DenseNull>():
+      case Nullability::GetTypeIndex<SparseNullWithPopcountAlways>():
+      case Nullability::GetTypeIndex<
+          SparseNullWithPopcountUntilFinalization>():
+        return true;
+      case Nullability::GetTypeIndex<SparseNull>():
+        return !column.null_storage.unchecked_get<SparseNull>()
+                    .prefix_popcount_for_cell_get.empty();
+      default:
+        return false;
+    }
+  }
+
   // Adds a new row to the dataframe with the specified values.
   //
   // Note: This function does not check the types of the values against the
@@ -347,9 +365,21 @@ class Dataframe {
             nulls.bit_vector.count_set_bits_until_in_word(row));
         break;
       }
-      case Nullability::GetTypeIndex<SparseNull>():
-        PERFETTO_FATAL(
-            "SparseNull without popcount does not support random access");
+      case Nullability::GetTypeIndex<SparseNull>(): {
+        const auto& nulls = column.null_storage.unchecked_get<SparseNull>();
+        if (nulls.prefix_popcount_for_cell_get.empty()) {
+          PERFETTO_FATAL(
+              "SparseNull without popcount does not support random access");
+        }
+        if (!nulls.bit_vector.is_set(row)) {
+          callback.OnCell(nullptr);
+          return;
+        }
+        storage_idx = static_cast<uint32_t>(
+            nulls.prefix_popcount_for_cell_get[row / 64] +
+            nulls.bit_vector.count_set_bits_until_in_word(row));
+        break;
+      }
       default:
         PERFETTO_FATAL("Unknown null storage type");
     }

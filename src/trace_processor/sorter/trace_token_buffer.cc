@@ -153,11 +153,10 @@ TrackEventData TraceTokenBuffer::Extract<TrackEventData>(Id id) {
   InternedIndex interned_index = GetInternedIndex(id.alloc_id);
   BlobWithOffset& bwo =
       interned_blobs_.at(interned_index)[desc.intern_blob_index];
-  TraceBlobView tbv(RefPtr<TraceBlob>::FromReleasedUnsafe(bwo.blob),
+  TraceBlobView tbv(bwo.blob,
                     bwo.offset_in_blob + desc.intern_blob_offset,
                     static_cast<uint32_t>(packet_size));
-  auto seq = RefPtr<PacketSequenceStateGeneration>::FromReleasedUnsafe(
-      interned_seqs_.at(interned_index)[desc.intern_seq_index]);
+  auto seq = interned_seqs_.at(interned_index)[desc.intern_seq_index];
 
   TrackEventData ted{std::move(tbv), std::move(seq)};
   if (desc.has_thread_instruction_count) {
@@ -184,7 +183,7 @@ uint32_t TraceTokenBuffer::InternTraceBlob(InternedIndex interned_index,
   }
 
   BlobWithOffset& last_blob = blobs.back();
-  if (last_blob.blob != tbv.blob().get()) {
+  if (last_blob.blob.get() != tbv.blob().get()) {
     return AddTraceBlob(interned_index, tbv);
   }
 
@@ -205,14 +204,6 @@ uint32_t TraceTokenBuffer::InternTraceBlob(InternedIndex interned_index,
     return AddTraceBlob(interned_index, tbv);
   }
 
-  // Intentionally "leak" this pointer. This essentially keeps the refcount
-  // of this TraceBlob one higher than the number of RefPtrs pointing to it.
-  // This allows avoid storing the same RefPtr n times.
-  //
-  // Calls to this function are paired to Extract<TrackEventData> which picks
-  // up this "leaked" pointer.
-  TraceBlob* leaked = tbv.blob().ReleaseUnsafe();
-  base::ignore_result(leaked);
   return static_cast<uint32_t>(rel_offset);
 }
 
@@ -226,15 +217,11 @@ uint16_t TraceTokenBuffer::InternSeqState(
   size_t lookback = std::min<size_t>(32u, states.size());
   for (uint32_t i = 0; i < lookback; ++i) {
     uint16_t idx = static_cast<uint16_t>(states.size() - 1 - i);
-    if (states[idx] == ptr.get()) {
-      // Intentionally "leak" this pointer. See |InternTraceBlob| for an
-      // explanation.
-      PacketSequenceStateGeneration* leaked = ptr.ReleaseUnsafe();
-      base::ignore_result(leaked);
+    if (states[idx].get() == ptr.get()) {
       return idx;
     }
   }
-  states.emplace_back(ptr.ReleaseUnsafe());
+  states.emplace_back(std::move(ptr));
   PERFETTO_CHECK(states.size() <= std::numeric_limits<uint16_t>::max());
   return static_cast<uint16_t>(states.size() - 1);
 }
@@ -242,7 +229,7 @@ uint16_t TraceTokenBuffer::InternSeqState(
 uint32_t TraceTokenBuffer::AddTraceBlob(InternedIndex interned_index,
                                         const TraceBlobView& tbv) {
   BlobWithOffsets& blobs = interned_blobs_.at(interned_index);
-  blobs.emplace_back(BlobWithOffset{tbv.blob().ReleaseUnsafe(), tbv.offset()});
+  blobs.emplace_back(BlobWithOffset{tbv.blob(), tbv.offset()});
   PERFETTO_CHECK(blobs.size() <= std::numeric_limits<uint16_t>::max());
   return 0u;
 }

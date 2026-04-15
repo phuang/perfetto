@@ -131,7 +131,6 @@ class TraceSorter {
     BumpAllocator::AllocId end_id = token_buffer_.PastTheEndAllocId();
     SortAndExtractEventsUntilAllocId(end_id);
     for (auto& queue : queues_) {
-      PERFETTO_CHECK(queue.events_.empty());
       queue.events_ = base::CircularQueue<TimestampedEvent>();
     }
 
