@@ -354,17 +354,7 @@ class Dataframe {
       }
       case Nullability::GetTypeIndex<SparseNullWithPopcountAlways>():
       case Nullability::GetTypeIndex<
-          SparseNullWithPopcountUntilFinalization>(): {
-        const auto& nulls = column.null_storage.unchecked_get<SparseNull>();
-        if (!nulls.bit_vector.is_set(row)) {
-          callback.OnCell(nullptr);
-          return;
-        }
-        storage_idx = static_cast<uint32_t>(
-            nulls.prefix_popcount_for_cell_get[row / 64] +
-            nulls.bit_vector.count_set_bits_until_in_word(row));
-        break;
-      }
+          SparseNullWithPopcountUntilFinalization>():
       case Nullability::GetTypeIndex<SparseNull>(): {
         const auto& nulls = column.null_storage.unchecked_get<SparseNull>();
         if (nulls.prefix_popcount_for_cell_get.empty()) {
@@ -375,8 +365,10 @@ class Dataframe {
           callback.OnCell(nullptr);
           return;
         }
+        uint32_t popcount_idx = row / 64;
+        PERFETTO_DCHECK(popcount_idx < nulls.prefix_popcount_for_cell_get.size());
         storage_idx = static_cast<uint32_t>(
-            nulls.prefix_popcount_for_cell_get[row / 64] +
+            nulls.prefix_popcount_for_cell_get[popcount_idx] +
             nulls.bit_vector.count_set_bits_until_in_word(row));
         break;
       }

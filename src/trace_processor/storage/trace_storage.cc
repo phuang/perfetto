@@ -159,21 +159,20 @@ struct TsExtractor : public dataframe::CellCallback {
 }  // namespace
 
 void TraceStorage::PruneHistory(int64_t cutoff_ts) {
-  for (size_t i = 0; i < tables::kTableCount; ++i) {
-    auto* table = reinterpret_cast<dataframe::Dataframe*>(
-        &tables_storage_[i * sizeof(dataframe::Dataframe)]);
+  // Only prune core tables that are known to grow large and have a "ts" column.
+  auto prune_one = [cutoff_ts](auto* table_ptr) {
+    auto* table = reinterpret_cast<dataframe::Dataframe*>(table_ptr);
     auto ts_col_idx = table->IndexOfColumnLegacy("ts");
     if (!ts_col_idx || table->row_count() == 0) {
-      continue;
+      return;
     }
 
     uint32_t col = *ts_col_idx;
     if (!table->SupportsRandomAccess(col)) {
-      continue;
+      return;
     }
-    TsExtractor extractor;
 
-    // Use binary search to find the first row where ts >= cutoff_ts.
+    TsExtractor extractor;
     uint32_t low = 0;
     uint32_t high = table->row_count();
     while (low < high) {
@@ -189,7 +188,12 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
     if (low > 0) {
       table->ShrinkFromFront(low);
     }
-  }
+  };
+
+  prune_one(mutable_table<tables::SliceTable>());
+  prune_one(mutable_table<tables::CounterTable>());
+  prune_one(mutable_table<tables::ThreadStateTable>());
+  prune_one(mutable_table<tables::FtraceEventTable>());
 }
 
 }  // namespace perfetto::trace_processor
