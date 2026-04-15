@@ -16,6 +16,7 @@
 
 #include "src/trace_processor/util/bump_allocator.h"
 
+#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -60,6 +61,7 @@ BumpAllocator::AllocId BumpAllocator::Alloc(uint32_t size) {
   // chunk.
   std::optional<AllocId> alloc_id = TryAllocInLastChunk(size);
   if (alloc_id) {
+    PERFETTO_CHECK(alloc_id->chunk_index >= erased_front_chunks_count_);
     return *alloc_id;
   }
 
@@ -75,11 +77,19 @@ BumpAllocator::AllocId BumpAllocator::Alloc(uint32_t size) {
   // we just added).
   alloc_id = TryAllocInLastChunk(size);
   PERFETTO_CHECK(alloc_id);
+  PERFETTO_CHECK(alloc_id->chunk_index >= erased_front_chunks_count_);
   return *alloc_id;
 }
 
 void BumpAllocator::Free(AllocId id) {
+  if (PERFETTO_UNLIKELY(id.chunk_index < erased_front_chunks_count_)) {
+    PERFETTO_FATAL("BumpAllocator::Free out of bounds: chunk_index=%" PRIu64
+                   " erased=%" PRIu64,
+                   static_cast<uint64_t>(id.chunk_index),
+                   erased_front_chunks_count_);
+  }
   uint64_t queue_index = ChunkIndexToQueueIndex(id.chunk_index);
+  PERFETTO_CHECK(queue_index < chunks_.size());
   PERFETTO_DCHECK(queue_index <= std::numeric_limits<size_t>::max());
   Chunk& chunk = chunks_.at(static_cast<size_t>(queue_index));
   PERFETTO_DCHECK(chunk.unfreed_allocations > 0);
@@ -87,7 +97,14 @@ void BumpAllocator::Free(AllocId id) {
 }
 
 void* BumpAllocator::GetPointer(AllocId id) {
+  if (PERFETTO_UNLIKELY(id.chunk_index < erased_front_chunks_count_)) {
+    PERFETTO_FATAL("BumpAllocator::GetPointer out of bounds: chunk_index=%" PRIu64
+                   " erased=%" PRIu64,
+                   static_cast<uint64_t>(id.chunk_index),
+                   erased_front_chunks_count_);
+  }
   uint64_t queue_index = ChunkIndexToQueueIndex(id.chunk_index);
+  PERFETTO_CHECK(queue_index < chunks_.size());
   PERFETTO_CHECK(queue_index <= std::numeric_limits<size_t>::max());
   return chunks_.at(static_cast<size_t>(queue_index)).allocation.get() +
          id.chunk_offset;

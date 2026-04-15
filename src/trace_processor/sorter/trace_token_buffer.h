@@ -105,6 +105,12 @@ class TraceTokenBuffer {
   // allocator. The amount of memory free is implementation defined.
   void FreeMemory();
 
+  // Returns the number of erased chunks from the start of the underlying
+  // allocator.
+  uint64_t erased_front_chunks_count() const {
+    return allocator_.erased_front_chunks_count();
+  }
+
  private:
   struct BlobWithOffset {
     RefPtr<TraceBlob> blob;

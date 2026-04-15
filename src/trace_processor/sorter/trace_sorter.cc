@@ -67,6 +67,8 @@ void TraceSorter::Queue::Sort(TraceTokenBuffer& buffer, bool use_slow_sorting) {
     return;
   }
 
+  PERFETTO_CHECK(sort_start_idx_ < events_.size());
+
   // The first |sort_start_idx_| elements are already sorted.
   // The elements after that need to be sorted.
   //
@@ -100,7 +102,7 @@ void TraceSorter::Queue::Sort(TraceTokenBuffer& buffer, bool use_slow_sorting) {
     std::sort(sort_begin, events_.end());
   }
   sort_start_idx_ = 0;
-  sort_min_ts_ = 0;
+  sort_min_ts_ = std::numeric_limits<int64_t>::max();
 
   // At this point |events_| must be fully sorted
   if (use_slow_sorting) {
@@ -162,6 +164,12 @@ void TraceSorter::SortAndExtractEventsUntilAllocId(
     }
     PERFETTO_DCHECK(queue.min_ts_ == events.front().ts);
 
+    // Safety check: ensure all events we are about to process are valid.
+    uint64_t erased_chunks = token_buffer_.erased_front_chunks_count();
+    for (size_t i = 0; i < events.size(); ++i) {
+      PERFETTO_CHECK(events.at(i).chunk_index >= erased_chunks);
+    }
+
     // Now that we identified the min-queue, extract all events from it until
     // we hit either: (1) the min-ts of the 2nd queue or (2) the packet index
     // limit, whichever comes first.
@@ -206,6 +214,17 @@ void TraceSorter::SortAndExtractEventsUntilAllocId(
     // and global time bounds.
     events.erase_front(num_extracted);
     events.shrink_to_fit();
+
+    // Update the sort_start_idx_ to reflect the fact that we removed
+    // |num_extracted| events from the front of the queue.
+    if (queue.sort_start_idx_ > 0) {
+      if (num_extracted >= queue.sort_start_idx_) {
+        queue.sort_start_idx_ = 0;
+        queue.sort_min_ts_ = std::numeric_limits<int64_t>::max();
+      } else {
+        queue.sort_start_idx_ -= num_extracted;
+      }
+    }
 
     // Update the queue timestamps to reflect the bounds after extraction.
     if (events.empty()) {

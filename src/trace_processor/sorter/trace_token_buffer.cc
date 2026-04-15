@@ -151,12 +151,19 @@ TrackEventData TraceTokenBuffer::Extract<TrackEventData>(Id id) {
   uint64_t packet_size = ExtractFromPtr<uint64_t>(&ptr);
 
   InternedIndex interned_index = GetInternedIndex(id.alloc_id);
-  BlobWithOffset& bwo =
-      interned_blobs_.at(interned_index)[desc.intern_blob_index];
+  PERFETTO_CHECK(interned_index < interned_blobs_.size());
+  BlobWithOffsets& blobs = interned_blobs_.at(interned_index);
+  PERFETTO_CHECK(desc.intern_blob_index < blobs.size());
+  BlobWithOffset& bwo = blobs[desc.intern_blob_index];
+
   TraceBlobView tbv(bwo.blob,
                     bwo.offset_in_blob + desc.intern_blob_offset,
                     static_cast<uint32_t>(packet_size));
-  auto seq = interned_seqs_.at(interned_index)[desc.intern_seq_index];
+
+  PERFETTO_CHECK(interned_index < interned_seqs_.size());
+  SequenceStates& seqs = interned_seqs_.at(interned_index);
+  PERFETTO_CHECK(desc.intern_seq_index < seqs.size());
+  auto seq = seqs[desc.intern_seq_index];
 
   TrackEventData ted{std::move(tbv), std::move(seq)};
   if (desc.has_thread_instruction_count) {
@@ -168,6 +175,7 @@ TrackEventData TraceTokenBuffer::Extract<TrackEventData>(Id id) {
   if (desc.has_counter_value) {
     ted.counter_value = ExtractFromPtr<double>(&ptr);
   }
+  PERFETTO_CHECK(desc.extra_counter_count <= TrackEventData::kMaxNumExtraCounters);
   for (uint32_t i = 0; i < desc.extra_counter_count; ++i) {
     ted.extra_counter_values[i] = ExtractFromPtr<double>(&ptr);
   }
@@ -264,12 +272,11 @@ BumpAllocator::AllocId TraceTokenBuffer::AllocAndResizeInternedVectors(
 
 TraceTokenBuffer::InternedIndex TraceTokenBuffer::GetInternedIndex(
     BumpAllocator::AllocId alloc_id) {
-  uint64_t interned_index =
-      alloc_id.chunk_index - allocator_.erased_front_chunks_count();
-  PERFETTO_DCHECK(interned_index <= std::numeric_limits<size_t>::max());
-  PERFETTO_DCHECK(interned_index < interned_blobs_.size());
-  PERFETTO_DCHECK(interned_index < interned_seqs_.size());
-  PERFETTO_DCHECK(interned_blobs_.size() == interned_seqs_.size());
+  uint64_t erased = allocator_.erased_front_chunks_count();
+  PERFETTO_CHECK(alloc_id.chunk_index >= erased);
+  uint64_t interned_index = alloc_id.chunk_index - erased;
+  PERFETTO_CHECK(interned_index < interned_blobs_.size());
+  PERFETTO_CHECK(interned_index < interned_seqs_.size());
   return static_cast<size_t>(interned_index);
 }
 
