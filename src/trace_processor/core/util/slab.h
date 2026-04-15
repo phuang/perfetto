@@ -91,7 +91,8 @@ class Slab {
   Slab(T* data, uint64_t size) : data_(data), size_(size) {}
 
   // Aligned unique pointer that holds the allocated memory.
-  base::AlignedUniquePtr<T> data_;
+  // Using T[] ensures the deleter correctly handles array allocation.
+  base::AlignedUniquePtr<T[]> data_;
 
   // Number of elements in the slab.
   uint64_t size_ = 0;
