@@ -274,11 +274,35 @@ export class LiveTracingManager {
 
 
       {
-        const kQueryRecordCount = "SELECT COUNT(*) as c FROM __intrinsic_counter";
-        const result = await this.engine!.tryQuery(kQueryRecordCount);
-        const iter = result.value?.iter({c: NUM});
-        if (iter?.valid()) {
-          console.log(`__intrinsic_counter has ${iter.c} records!`);
+        const kQueryRecordCounts = `
+          SELECT
+            (SELECT COUNT(*) FROM __intrinsic_slice) as slice_count,
+            (SELECT COUNT(*) FROM __intrinsic_counter) as counter_count,
+            (SELECT COUNT(*) FROM __intrinsic_sched_slice) as sched_count,
+            (SELECT COUNT(*) FROM __intrinsic_android_logs) as log_count,
+            (SELECT COUNT(*) FROM __intrinsic_args) as arg_count
+        `;
+        const result = await this.engine!.tryQuery(kQueryRecordCounts);
+        if (result.ok) {
+          const iter = result.value.iter({
+            slice_count: NUM,
+            counter_count: NUM,
+            sched_count: NUM,
+            log_count: NUM,
+            arg_count: NUM,
+          });
+          if (iter.valid()) {
+            console.log(
+              `LiveTracingManager Table Counts: ` +
+              `slice=${iter.slice_count}, ` +
+              `counter=${iter.counter_count}, ` +
+              `sched=${iter.sched_count}, ` +
+              `logs=${iter.log_count}, ` +
+              `args=${iter.arg_count}`
+            );
+          }
+        } else {
+          console.warn(`Select table counts failed: ${result.error}`);
         }
       }
 
