@@ -201,16 +201,16 @@ void TraceStorage::PruneHistory(int64_t cutoff_ts) {
     }
 
     if (low > 0) {
-      auto arg_set_id_col_idx = table->IndexOfColumnLegacy("arg_set_id");
-      if (arg_set_id_col_idx) {
-        IdExtractor id_extractor;
-        table->GetCell(low - 1, *arg_set_id_col_idx, id_extractor);
-        max_removed_arg_set_id = std::max(max_removed_arg_set_id, id_extractor.id);
-      }
-
       // Only shrink if we are pruning a significant number of rows.
       // This avoids clearing SQL indexes (which is expensive) too frequently.
       if (low > 1000 || low > table->row_count() / 20) {
+        auto arg_set_id_col_idx = table->IndexOfColumnLegacy("arg_set_id");
+        if (arg_set_id_col_idx) {
+          IdExtractor id_extractor;
+          table->GetCell(low - 1, *arg_set_id_col_idx, id_extractor);
+          max_removed_arg_set_id =
+              std::max(max_removed_arg_set_id, id_extractor.id);
+        }
         table->ShrinkFromFront(low);
       }
     }
