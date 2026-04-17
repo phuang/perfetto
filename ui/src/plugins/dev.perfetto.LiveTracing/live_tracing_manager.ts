@@ -40,6 +40,7 @@ export class LiveTracingManager {
   private lastQueryTime = 0;
   private pendingParseResults: Array<Promise<void>> = [];
   private intrinsicTablesExist: boolean = false;
+  private hasNewData = false;
   private cpuFreqData = {
     little: [{ load: 0, freq: 0 }, { load: 0, freq: 0 }],
     mid: [{ load: 0, freq: 0 }, { load: 0, freq: 0 }, { load: 0, freq: 0 }, { load: 0, freq: 0 }],
@@ -100,11 +101,13 @@ export class LiveTracingManager {
     await this.engine.parse(traceWriter.finish());
 
     this.session.onTraceData.addListener((packets) => {
+      console.log(`LiveTracingManager: Received ${packets.length} bytes of trace data`);
       this.parsePackets(packets).catch((e) => {
         console.error('LiveTracingManager: parsePackets failed', e);
       });
     });
 
+    console.log('LiveTracingManager: Tracing started, waiting for data...');
     this.timer = window.setInterval(() => {
       if (!this.session) {
         return;
@@ -216,6 +219,7 @@ export class LiveTracingManager {
 
   private async parsePackets(data: Uint8Array) {
     if (!this.engine) {
+      console.warn('LiveTracingManager: parsePackets called but engine is undefined');
       return;
     }
 
@@ -226,9 +230,10 @@ export class LiveTracingManager {
     }
 
     this.pendingParseResults.push(this.engine.parse(data));
+    this.hasNewData = true;
 
     if (now - this.lastQueryTime < 1000) {
-      // console.log('LiveTracingManager: feed data to engine, waiting for next flush to query');
+      console.log(`LiveTracingManager: Buffering data, next query in ${1000 - (now - this.lastQueryTime)}ms`);
       return;
     }
     this.lastQueryTime = now;
@@ -236,15 +241,22 @@ export class LiveTracingManager {
     let parsePromisses = this.pendingParseResults;
     this.pendingParseResults = [];
 
+    if (!this.hasNewData) {
+      console.log('LiveTracingManager: No new data, skipping queries');
+      return;
+    }
+    this.hasNewData = false;
+
     // Wait for all pending parses to complete before querying.
     Promise.all(parsePromisses).then(async () => {
-      // console.log('LiveTracingManager: Parsed trace data');
+      console.log('LiveTracingManager: All pending parses completed, starting queries');
       if (!this.engine) {
         console.error('LiveTracingManager: Engine not initialized');
         return;
       }
 
       await this.engine.flush();
+      console.log('LiveTracingManager: Engine flushed');
 
       // Check if intrinsic tables exist.
       if (!this.intrinsicTablesExist) {
@@ -318,6 +330,7 @@ export class LiveTracingManager {
       const queryResults: Array<Promise<QueryResult>> = queries.map(q => this.engine!.query(q));
 
       Promise.all(queryResults).then((results) => {
+        console.log(`LiveTracingManager: Received ${results.length} query results`);
         const [cpuLoadResult, cpuFreqResult, fpsResult, powerResult, thermResult, _tableDumpResult] = results;
         // Process CPU load results.
         {
