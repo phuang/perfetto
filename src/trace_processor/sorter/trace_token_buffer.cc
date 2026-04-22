@@ -98,7 +98,7 @@ TraceTokenBuffer::Id TraceTokenBuffer::Append(TrackEventData ted) {
 
   // Compress all the booleans indicating the presence of a value into 4 bits
   // instead of 4 bytes as they would take inside base::Optional.
-  TrackEventDataDescriptor desc;
+  TrackEventDataDescriptor desc{};
   desc.has_thread_instruction_count = ted.thread_instruction_count.has_value();
   desc.has_thread_timestamp = ted.thread_timestamp.has_value();
   desc.has_counter_value = std::not_equal_to<double>()(ted.counter_value, 0);
@@ -153,7 +153,14 @@ TrackEventData TraceTokenBuffer::Extract<TrackEventData>(Id id) {
   InternedIndex interned_index = GetInternedIndex(id.alloc_id);
   PERFETTO_CHECK(interned_index < interned_blobs_.size());
   BlobWithOffsets& blobs = interned_blobs_.at(interned_index);
-  PERFETTO_CHECK(desc.intern_blob_index < blobs.size());
+  if (PERFETTO_UNLIKELY(desc.intern_blob_index >= blobs.size())) {
+    PERFETTO_FATAL(
+        "TraceTokenBuffer::Extract<TrackEventData> out of bounds: "
+        "blob_index=%u blobs_size=%zu chunk_index=%" PRIu64 " erased=%" PRIu64,
+        desc.intern_blob_index, blobs.size(),
+        static_cast<uint64_t>(id.alloc_id.chunk_index),
+        allocator_.erased_front_chunks_count());
+  }
   BlobWithOffset& bwo = blobs[desc.intern_blob_index];
 
   TraceBlobView tbv(bwo.blob,

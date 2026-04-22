@@ -107,6 +107,7 @@ struct DataframeModule : sqlite::Module<DataframeModule> {
     const dataframe::Dataframe* dataframe;
     DfCursor df_cursor;
     const char* last_idx_str = nullptr;
+    uint32_t last_mutation_count = 0;
     uint32_t id_col_idx = 0;
   };
 

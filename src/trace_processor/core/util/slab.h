@@ -83,6 +83,7 @@ class Slab {
 
   // Provides indexed access to elements.
   PERFETTO_ALWAYS_INLINE T& operator[](uint64_t i) const {
+    PERFETTO_CHECK(i < size_);
     return data_.get()[i];
   }
 

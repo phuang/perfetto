@@ -436,8 +436,21 @@ int DataframeModule::Filter(sqlite3_vtab_cursor* cur,
                             int argc,
                             sqlite3_value** argv) {
   auto* c = GetCursor(cur);
+  auto* v = GetVtab(cur->pVtab);
+  auto* s = sqlite::ModuleStateManager<DataframeModule>::GetState(v->state);
+
   if (idxStr != c->last_idx_str) {
     auto plan = dataframe::Dataframe::QueryPlan::Deserialize(idxStr);
+
+    uint32_t current_mutations = s->dataframe->non_column_mutations();
+    if (plan.GetImplForTesting().params.mutation_count != current_mutations) {
+      cur->pVtab->zErrMsg = sqlite3_mprintf(
+          "Dataframe plan is stale: plan_mutations=%u current_mutations=%u. "
+          "This usually happens if the table was pruned during query execution.",
+          plan.GetImplForTesting().params.mutation_count, current_mutations);
+      return SQLITE_ERROR;
+    }
+
     PERFETTO_TP_TRACE(
         metatrace::Category::QUERY_DETAILED, "DATAFRAME_FILTER_PREPARE",
         [&plan, idxNum](metatrace::Record* record) {
@@ -453,7 +466,16 @@ int DataframeModule::Filter(sqlite3_vtab_cursor* cur,
     auto* s = sqlite::ModuleStateManager<DataframeModule>::GetState(v->state);
     s->dataframe->PrepareCursor(plan, c->df_cursor);
     c->last_idx_str = idxStr;
+    c->last_mutation_count = current_mutations;
     c->id_col_idx = v->id_col_idx;
+  } else if (c->last_mutation_count != s->dataframe->non_column_mutations()) {
+    // If the plan is the same, but the table was modified, we still need
+    // to return an error because row indices may have shifted.
+    cur->pVtab->zErrMsg = sqlite3_mprintf(
+        "Dataframe was modified since last filter: last_mutations=%u "
+        "current_mutations=%u.",
+        c->last_mutation_count, s->dataframe->non_column_mutations());
+    return SQLITE_ERROR;
   }
   // SQLite's API claims it will never pass more than 16 arguments
   // so assert that here as our std::array is fixed size.

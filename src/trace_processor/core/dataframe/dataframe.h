@@ -17,6 +17,7 @@
 #ifndef SRC_TRACE_PROCESSOR_CORE_DATAFRAME_DATAFRAME_H_
 #define SRC_TRACE_PROCESSOR_CORE_DATAFRAME_DATAFRAME_H_
 
+#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -137,6 +138,21 @@ class Dataframe {
   // Movable
   Dataframe(Dataframe&&) = default;
   Dataframe& operator=(Dataframe&&) = default;
+
+  // Returns the number of rows removed from the front of the dataframe.
+  uint32_t PoppedRows() const {
+    if (columns_.empty()) {
+      return 0;
+    }
+    const auto& c = *column_ptrs_[0];
+    if (c.storage.type().Is<core::Id>()) {
+      return c.storage.unchecked_get<core::Id>().popped_rows;
+    }
+    return 0;
+  }
+
+  // Returns the number of table-level mutations (e.g. shrinking, clearing).
+  uint32_t non_column_mutations() const { return non_column_mutations_; }
 
   // Returns true if the column at `column_idx` supports random access (GetCell).
   bool SupportsRandomAccess(uint32_t column_idx) const {
@@ -665,6 +681,12 @@ class Dataframe {
                              N, SparseNullWithPopcountUntilFinalization>) {
       const auto& popcount = nulls.prefix_popcount_for_cell_get;
       uint32_t word = row / 64;
+      if (PERFETTO_UNLIKELY(word >= popcount.size())) {
+        PERFETTO_FATAL(
+            "Dataframe::SetCellUncheckedInternal OOB: row=%u word=%u "
+            "popcount_size=%" PRIu64 " row_count=%u",
+            row, word, popcount.size(), row_count_);
+      }
       auto storage_idx = static_cast<uint32_t>(
           popcount[word] + nulls.bit_vector.count_set_bits_until_in_word(row));
       const core::BitVector& bit_vector = nulls.bit_vector;

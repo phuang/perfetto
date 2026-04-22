@@ -51,11 +51,13 @@ BumpAllocator::~BumpAllocator() {
 }
 
 BumpAllocator::AllocId BumpAllocator::Alloc(uint32_t size) {
-  // Size is required to be a multiple of 8 to avoid needing to deal with
-  // alignment. It must also be at most kChunkSize as we do not support cross
+  // Enforce 8-byte alignment to avoid needing to deal with alignment in
+  // subclasses.
+  size = (size + 7) & ~7u;
+
+  // It must also be at most kChunkSize as we do not support cross
   // chunk spanning allocations.
-  PERFETTO_DCHECK(size % 8 == 0);
-  PERFETTO_DCHECK(size <= kChunkSize);
+  PERFETTO_CHECK(size <= kChunkSize);
 
   // Fast path: check if we have space to service this allocation in the current
   // chunk.

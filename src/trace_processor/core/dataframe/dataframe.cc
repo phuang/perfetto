@@ -100,7 +100,8 @@ base::StatusOr<Dataframe::QueryPlan> Dataframe::PlanQuery(
   ASSIGN_OR_RETURN(auto plan,
                    QueryPlanBuilder::Build(row_count_, columns_, indexes_,
                                            filter_specs, distinct_specs,
-                                           sort_specs, limit_spec, cols_used));
+                                           sort_specs, limit_spec, cols_used,
+                                           non_column_mutations_));
   return QueryPlan(std::move(plan));
 }
 

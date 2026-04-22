@@ -77,12 +77,12 @@ class FlexVector {
   }
 
   PERFETTO_ALWAYS_INLINE const T& operator[](uint64_t i) const {
-    PERFETTO_DCHECK(i < size_);
+    PERFETTO_CHECK(i < size_);
     return slab_[i];
   }
 
   PERFETTO_ALWAYS_INLINE T& operator[](uint64_t i) {
-    PERFETTO_DCHECK(i < size_);
+    PERFETTO_CHECK(i < size_);
     return slab_[i];
   }
 

@@ -103,10 +103,13 @@ struct QueryPlanImpl {
 
     // Number of output indices per row.
     uint32_t output_per_row = 0;
+
+    // The mutation count of the dataframe when this plan was built.
+    uint32_t mutation_count = 0;
   };
   static_assert(std::is_trivially_copyable_v<ExecutionParams>);
   static_assert(std::is_trivially_destructible_v<ExecutionParams>);
-  static_assert(sizeof(ExecutionParams) == 32);
+  static_assert(sizeof(ExecutionParams) == 40);
 
   // Serializes the query plan to a Base64-encoded string.
   // This allows plans to be stored or transmitted between processes.
@@ -246,7 +249,8 @@ class QueryPlanBuilder {
       const std::vector<DistinctSpec>& distinct,
       const std::vector<SortSpec>& sort_specs,
       const LimitSpec& limit_spec,
-      uint64_t cols_used);
+      uint64_t cols_used,
+      uint32_t mutation_count);
 
  private:
   // Indicates that the bytecode does not change the estimated or maximum number
@@ -289,7 +293,8 @@ class QueryPlanBuilder {
                    IndicesReg indices,
                    uint32_t row_count,
                    const std::vector<std::shared_ptr<Column>>& columns,
-                   const std::vector<Index>& indexes);
+                   const std::vector<Index>& indexes,
+                   uint32_t mutation_count);
 
   // Adds filter operations to the query plan based on filter specifications.
   // Optimizes the order of filters for efficiency.

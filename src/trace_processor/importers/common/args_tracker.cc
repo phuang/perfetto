@@ -144,22 +144,36 @@ void ArgsTracker::Flush() {
     ArgSetId set_id = context_->global_args_tracker->AddArgSet(
         sorted_args.data(), i, next_rid_idx);
     auto* df = static_cast<dataframe::Dataframe*>(ptr);
+
+    uint32_t popped = df->PoppedRows();
+    if (row < popped) {
+      // Row has been pruned, skip adding args.
+      i = next_rid_idx;
+      continue;
+    }
+    uint32_t current_row = row - popped;
+    if (current_row >= df->row_count()) {
+      // Row is out of bounds (should not happen if args are added to new rows).
+      i = next_rid_idx;
+      continue;
+    }
+
     auto n = df->GetNullabilityLegacy(col);
     if (n.Is<dataframe::NonNull>()) {
       df->SetCellUncheckedLegacy<dataframe::Uint32, dataframe::NonNull>(
-          arg.col, row, set_id);
+          arg.col, current_row, set_id);
     } else if (n.Is<dataframe::DenseNull>()) {
       df->SetCellUncheckedLegacy<dataframe::Uint32, dataframe::DenseNull>(
-          arg.col, row, std::make_optional(set_id));
+          arg.col, current_row, std::make_optional(set_id));
     } else if (n.Is<dataframe::SparseNullWithPopcountAlways>()) {
       df->SetCellUncheckedLegacy<dataframe::Uint32,
                                  dataframe::SparseNullWithPopcountAlways>(
-          arg.col, row, std::make_optional(set_id));
+          arg.col, current_row, std::make_optional(set_id));
     } else if (n.Is<dataframe::SparseNullWithPopcountUntilFinalization>()) {
       df->SetCellUncheckedLegacy<
           dataframe::Uint32,
           dataframe::SparseNullWithPopcountUntilFinalization>(
-          arg.col, row, std::make_optional(set_id));
+          arg.col, current_row, std::make_optional(set_id));
     } else {
       PERFETTO_FATAL("Unsupported nullability type for args.");
     }

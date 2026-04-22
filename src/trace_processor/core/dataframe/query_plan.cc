@@ -234,7 +234,8 @@ QueryPlanBuilder::QueryPlanBuilder(
     IndicesReg indices,
     uint32_t row_count,
     const std::vector<std::shared_ptr<Column>>& columns,
-    const std::vector<Index>& indexes)
+    const std::vector<Index>& indexes,
+    uint32_t mutation_count)
     : columns_(columns),
       indexes_(indexes),
       indices_reg_(indices),
@@ -243,6 +244,7 @@ QueryPlanBuilder::QueryPlanBuilder(
   // Setup the maximum and estimated row counts.
   plan_.params.max_row_count = row_count;
   plan_.params.estimated_row_count = row_count;
+  plan_.params.mutation_count = mutation_count;
 }
 
 base::StatusOr<QueryPlanImpl> QueryPlanBuilder::Build(
@@ -253,7 +255,8 @@ base::StatusOr<QueryPlanImpl> QueryPlanBuilder::Build(
     const std::vector<DistinctSpec>& distinct,
     const std::vector<SortSpec>& sort_specs,
     const LimitSpec& limit_spec,
-    uint64_t cols_used) {
+    uint64_t cols_used,
+    uint32_t mutation_count) {
   i::BytecodeBuilder bytecode_builder;
   DataframeRegisterCache cache(bytecode_builder);
 
@@ -267,7 +270,7 @@ base::StatusOr<QueryPlanImpl> QueryPlanBuilder::Build(
   }
 
   QueryPlanBuilder builder(bytecode_builder, cache, range, row_count, columns,
-                           indexes);
+                           indexes, mutation_count);
   RETURN_IF_ERROR(builder.Filter(specs));
   builder.Distinct(distinct);
   if (builder.CanUseMinMaxOptimization(sort_specs, limit_spec)) {
