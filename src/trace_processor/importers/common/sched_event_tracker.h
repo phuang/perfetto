@@ -40,10 +40,10 @@ class SchedEventTracker : public Destructible {
   ~SchedEventTracker() override;
 
   PERFETTO_ALWAYS_INLINE
-  uint32_t AddStartSlice(uint32_t cpu,
-                         int64_t ts,
-                         UniqueTid next_utid,
-                         int32_t next_prio) {
+  std::optional<SchedId> AddStartSlice(uint32_t cpu,
+                                       int64_t ts,
+                                       UniqueTid next_utid,
+                                       int32_t next_prio) {
     // Open a new scheduling slice, corresponding to the task that was
     // just switched to. Set the duration to -1, to indicate that the event is
     // not finished. Duration will be updated later after event finish.
@@ -52,35 +52,36 @@ class SchedEventTracker : public Destructible {
     auto ucpu = context_->cpu_tracker->GetOrCreateCpu(cpu);
     auto row_and_id = sched->Insert(
         {ts, /* duration */ -1, next_utid, kNullStringId, next_prio, ucpu});
-    SchedId sched_id = row_and_id.id;
-    return sched->FindById(sched_id)->ToRowNumber().row_number();
+    return row_and_id.id;
   }
 
   PERFETTO_ALWAYS_INLINE
-  void ClosePendingSlice(uint32_t pending_slice_idx,
+  void ClosePendingSlice(SchedId sched_id,
                          int64_t ts,
                          StringId prev_state) {
     auto* slices = context_->storage->mutable_sched_slice_table();
-    auto r = (*slices)[pending_slice_idx];
-    r.set_dur(ts - r.ts());
-    r.set_end_state(prev_state);
+    auto r = slices->FindById(sched_id);
+    if (!r) return;
+    r->set_dur(ts - r->ts());
+    r->set_end_state(prev_state);
   }
 
   PERFETTO_ALWAYS_INLINE
-  int64_t GetEndTimestampForPendingSlice(uint32_t pending_slice_idx) {
+  int64_t GetEndTimestampForPendingSlice(SchedId sched_id) {
     auto* slices = context_->storage->mutable_sched_slice_table();
-    auto r = (*slices)[pending_slice_idx];
-    if (r.dur() < 0)
+    auto r = slices->FindById(sched_id);
+    if (!r || r->dur() < 0)
       return -1;
-    return r.ts() + r.dur();
+    return r->ts() + r->dur();
   }
 
   PERFETTO_ALWAYS_INLINE
-  void SetEndStateForPendingSlice(uint32_t pending_slice_idx,
+  void SetEndStateForPendingSlice(SchedId sched_id,
                                   StringId prev_state) {
     auto* slices = context_->storage->mutable_sched_slice_table();
-    auto r = (*slices)[pending_slice_idx];
-    r.set_end_state(prev_state);
+    auto r = slices->FindById(sched_id);
+    if (!r) return;
+    r->set_end_state(prev_state);
   }
 
  private:

@@ -89,16 +89,15 @@ void FtraceSchedEventTracker::PushSchedSwitch(uint32_t cpu,
   // First use this data to close the previous slice.
   bool prev_pid_match_prev_next_pid = false;
   auto* pending_sched = sched_event_state_.GetPendingSchedInfoForCpu(cpu);
-  uint32_t pending_slice_idx = pending_sched->pending_slice_storage_idx;
   StringId prev_state_string_id = TaskStateToStringId(prev_state);
   if (prev_state_string_id == kNullStringId) {
     context_->storage->IncrementStats(stats::task_state_invalid);
   }
-  if (pending_slice_idx < std::numeric_limits<uint32_t>::max()) {
+  if (pending_sched->pending_sched_id) {
     prev_pid_match_prev_next_pid = prev_pid == pending_sched->last_pid;
     if (PERFETTO_LIKELY(prev_pid_match_prev_next_pid)) {
-      context_->sched_event_tracker->ClosePendingSlice(pending_slice_idx, ts,
-                                                       prev_state_string_id);
+      context_->sched_event_tracker->ClosePendingSlice(
+          *pending_sched->pending_sched_id, ts, prev_state_string_id);
     } else {
       // If the pids are not consistent, make a note of this.
       context_->storage->IncrementStats(stats::mismatched_sched_switch_tids);
@@ -116,11 +115,11 @@ void FtraceSchedEventTracker::PushSchedSwitch(uint32_t cpu,
   AddRawSchedSwitchEvent(cpu, ts, prev_utid, prev_pid, prev_comm_id, prev_prio,
                          prev_state, next_pid, next_comm_id, next_prio);
 
-  auto new_slice_idx = context_->sched_event_tracker->AddStartSlice(
+  auto new_sched_id = context_->sched_event_tracker->AddStartSlice(
       cpu, ts, next_utid, next_prio);
 
   // Finally, update the info for the next sched switch on this CPU.
-  pending_sched->pending_slice_storage_idx = new_slice_idx;
+  pending_sched->pending_sched_id = new_sched_id;
   pending_sched->last_pid = next_pid;
   pending_sched->last_utid = next_utid;
   pending_sched->last_prio = next_prio;
@@ -159,14 +158,13 @@ void FtraceSchedEventTracker::PushSchedSwitchCompact(uint32_t cpu,
 
   // Close the pending slice if any (we won't have one when processing the first
   // two compact events for a given cpu).
-  uint32_t pending_slice_idx = pending_sched->pending_slice_storage_idx;
   StringId prev_state_str_id = TaskStateToStringId(prev_state);
   if (prev_state_str_id == kNullStringId) {
     context_->storage->IncrementStats(stats::task_state_invalid);
   }
-  if (pending_slice_idx != std::numeric_limits<uint32_t>::max()) {
-    context_->sched_event_tracker->ClosePendingSlice(pending_slice_idx, ts,
-                                                     prev_state_str_id);
+  if (pending_sched->pending_sched_id) {
+    context_->sched_event_tracker->ClosePendingSlice(
+        *pending_sched->pending_sched_id, ts, prev_state_str_id);
   }
 
   // Use the previous event's values to infer this event's "prev_*" fields.
@@ -192,15 +190,17 @@ void FtraceSchedEventTracker::PushSchedSwitchCompact(uint32_t cpu,
 
   // Subtle: if only inserting into raw, we're ending with:
   // * updated |pending_sched->last_*| fields
-  // * still-defaulted |pending_slice_storage_idx|
+  // * still-defaulted |pending_sched_id|
   // This is similar to the first compact_sched_switch per cpu.
-  if (PERFETTO_UNLIKELY(parse_only_into_raw))
+  if (PERFETTO_UNLIKELY(parse_only_into_raw)) {
+    pending_sched->pending_sched_id.reset();
     return;
+  }
 
   // Update per-cpu Sched table.
-  auto new_slice_idx = context_->sched_event_tracker->AddStartSlice(
+  auto new_sched_id = context_->sched_event_tracker->AddStartSlice(
       cpu, ts, next_utid, next_prio);
-  pending_sched->pending_slice_storage_idx = new_slice_idx;
+  pending_sched->pending_sched_id = new_sched_id;
 
   // Update the per-thread ThreadState table.
   ThreadStateTracker::GetOrCreate(context_)->PushSchedSwitchEvent(

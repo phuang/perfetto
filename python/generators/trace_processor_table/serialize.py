@@ -593,9 +593,10 @@ class {self.table_name} {{
 
   template <typename = void>
   IdAndRow Insert(const Row& row) {{
-    uint32_t row_count = dataframe_.row_count();
+    uint32_t row_idx = dataframe_.row_count();
     dataframe_.InsertUnchecked(kSpec, {insert_argvalue});
-    return IdAndRow{{Id{{row_count}}, RowNumber{{row_count}}, row_count, RowReference(this, row_count)}};
+    Id id{{dataframe_.PoppedRows() + row_idx}};
+    return IdAndRow{{id, RowNumber{{row_idx}}, row_idx, RowReference(this, row_idx)}};
   }}
 
   uint32_t row_count() const {{
@@ -607,14 +608,22 @@ class {self.table_name} {{
   }}
 
   std::optional<ConstRowReference> FindById(Id id) const {{
-    return ConstRowReference(this, id.value);
+    uint32_t popped = dataframe_.PoppedRows();
+    if (id.value < popped) return std::nullopt;
+    uint32_t row = id.value - popped;
+    if (row >= dataframe_.row_count()) return std::nullopt;
+    return ConstRowReference(this, row);
   }}
   ConstRowReference operator[](uint32_t row) const {{
     return ConstRowReference(this, row);
   }}
 
   std::optional<RowReference> FindById(Id id) {{
-    return RowReference(this, id.value);
+    uint32_t popped = dataframe_.PoppedRows();
+    if (id.value < popped) return std::nullopt;
+    uint32_t row = id.value - popped;
+    if (row >= dataframe_.row_count()) return std::nullopt;
+    return RowReference(this, row);
   }}
   RowReference operator[](uint32_t row) {{
     return RowReference(this, row);

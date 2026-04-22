@@ -19,83 +19,78 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
+#include <cstring>
+#include <utility>
 
-#include "perfetto/ext/base/utils.h"
+#include "perfetto/base/compiler.h"
+#include "perfetto/base/logging.h"
 #include "perfetto/public/compiler.h"
 
 namespace perfetto::trace_processor::core {
 
-// A memory-aligned contiguous block of trivially constructible and destructible
-// elements. Basically just a thin wrapper around a std::unique_ptr and a size
-// but with enforced alignment and additional compile-time checks.
-//
-// This class enforces several important constraints:
-// - Elements must be trivially constructible and destructible
-//
-// Usage example:
-//   auto slab = Slab<float>::Alloc(1024);  // Allocates space for 1024 floats
-//   for (size_t i = 0; i < slab.size(); ++i) {
-//     slab[i] = static_cast<float>(i);
-//   }
+// A fixed-size array allocated on the heap.
 template <typename T>
 class Slab {
  public:
-  static_assert(std::is_trivially_constructible_v<T>,
-                "Slab elements must be trivially constructible");
-  static_assert(std::is_trivially_destructible_v<T>,
-                "Slab elements must be trivially destructible");
-
-  using value_type = T;
-  using const_iterator = const T*;
-
-  // Default constructor creates an empty slab.
   Slab() = default;
 
-  // Move operations are supported.
-  constexpr Slab(Slab&&) = default;
-  constexpr Slab& operator=(Slab&&) = default;
-
-  // Copy operations are deleted to avoid accidental copies.
+  // Movable but not copyable.
+  Slab(Slab&& other) noexcept : data_(other.data_), size_(other.size_) {
+    other.data_ = nullptr;
+    other.size_ = 0;
+  }
+  Slab& operator=(Slab&& other) noexcept {
+    if (this != &other) {
+      Free();
+      data_ = other.data_;
+      size_ = other.size_;
+      other.data_ = nullptr;
+      other.size_ = 0;
+    }
+    return *this;
+  }
   Slab(const Slab&) = delete;
   Slab& operator=(const Slab&) = delete;
 
-  // Allocates a new slab with the specified number of elements.
-  //
-  // size: Number of elements to allocate space for.
-  // Returns a new Slab object with the requested capacity.
+  ~Slab() { Free(); }
+
   static Slab<T> Alloc(uint64_t size) {
-    return Slab(
-        static_cast<T*>(base::AlignedAlloc(alignof(T), size * sizeof(T))),
-        size);
+    if (size == 0) {
+      return Slab<T>();
+    }
+    return Slab<T>(new T[size], size);
   }
 
-  // Returns a pointer to the underlying data.
-  PERFETTO_ALWAYS_INLINE const T* data() const { return data_.get(); }
-  PERFETTO_ALWAYS_INLINE T* data() { return data_.get(); }
+  PERFETTO_ALWAYS_INLINE const T& operator[](uint64_t i) const {
+    PERFETTO_CHECK(i < size_);
+    return data_[i];
+  }
 
-  // Returns the number of elements in the slab.
+  PERFETTO_ALWAYS_INLINE T& operator[](uint64_t i) {
+    PERFETTO_CHECK(i < size_);
+    return data_[i];
+  }
+
+  PERFETTO_ALWAYS_INLINE const T* data() const { return data_; }
+  PERFETTO_ALWAYS_INLINE T* data() { return data_; }
+
   PERFETTO_ALWAYS_INLINE uint64_t size() const { return size_; }
 
-  // Returns iterators for range-based for loops.
-  PERFETTO_ALWAYS_INLINE T* begin() const { return data_.get(); }
-  PERFETTO_ALWAYS_INLINE T* end() const { return data_.get() + size_; }
-
-  // Provides indexed access to elements.
-  PERFETTO_ALWAYS_INLINE T& operator[](uint64_t i) const {
-    PERFETTO_CHECK(i < size_);
-    return data_.get()[i];
-  }
+  PERFETTO_ALWAYS_INLINE T* begin() { return data_; }
+  PERFETTO_ALWAYS_INLINE const T* begin() const { return data_; }
+  PERFETTO_ALWAYS_INLINE T* end() { return data_ + size_; }
+  PERFETTO_ALWAYS_INLINE const T* end() const { return data_ + size_; }
 
  private:
-  // Constructor used by Alloc.
   Slab(T* data, uint64_t size) : data_(data), size_(size) {}
 
-  // Aligned unique pointer that holds the allocated memory.
-  // Using T[] ensures the deleter correctly handles array allocation.
-  base::AlignedUniquePtr<T[]> data_;
+  void Free() {
+    delete[] data_;
+    data_ = nullptr;
+    size_ = 0;
+  }
 
-  // Number of elements in the slab.
+  T* data_ = nullptr;
   uint64_t size_ = 0;
 };
 

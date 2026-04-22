@@ -18,6 +18,7 @@
 #define SRC_TRACE_PROCESSOR_CORE_UTIL_FLEX_VECTOR_H_
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

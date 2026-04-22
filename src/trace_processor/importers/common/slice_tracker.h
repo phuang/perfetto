@@ -124,7 +124,7 @@ class SliceTracker {
   static constexpr int64_t kPendingDuration = -1;
 
   struct SliceInfo {
-    tables::SliceTable::RowNumber row;
+    SliceId id;
     ArgsTracker args_tracker;
   };
   using SlicesStack = std::vector<SliceInfo>;
@@ -168,7 +168,7 @@ class SliceTracker {
                                                        StringId category);
 
   void StackPop(TrackId track_id);
-  void StackPush(TrackId track_id, tables::SliceTable::RowReference);
+  void StackPush(TrackId track_id, SliceId id);
 
   // If args need translation, adds them to a list of pending translatable args,
   // so that they are translated at the end of the trace. Takes ownership of the

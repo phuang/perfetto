@@ -118,17 +118,12 @@ class ThreadStateTracker : public Destructible {
   bool IsRunnable(StringId state);
 
   bool HasPreviousRowNumbersForUtid(UniqueTid utid) {
-    return utid < prev_row_numbers_for_thread_.size() &&
-           prev_row_numbers_for_thread_[utid].has_value();
+    return utid < prev_row_ids_for_thread_.size() &&
+           prev_row_ids_for_thread_[utid].has_value();
   }
 
   std::optional<tables::ThreadStateTable::RowReference> GetLastRowRef(
       UniqueTid utid);
-
-  tables::ThreadStateTable::RowReference RowNumToRef(
-      tables::ThreadStateTable::RowNumber row_number) {
-    return row_number.ToRowReference(storage_->mutable_thread_state_table());
-  }
 
   TraceStorage* const storage_;
   TraceProcessorContext* const context_;
@@ -138,11 +133,11 @@ class ThreadStateTracker : public Destructible {
   StringId runnable_string_id_;
 
   struct RelatedRows {
-    std::optional<tables::ThreadStateTable::RowNumber> last_blocked_row;
-    tables::ThreadStateTable::RowNumber last_row;
+    std::optional<tables::ThreadStateTable::Id> last_blocked_id;
+    tables::ThreadStateTable::Id last_row_id;
   };
 
-  std::vector<std::optional<RelatedRows>> prev_row_numbers_for_thread_;
+  std::vector<std::optional<RelatedRows>> prev_row_ids_for_thread_;
 };
 }  // namespace trace_processor
 }  // namespace perfetto

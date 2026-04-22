@@ -266,27 +266,26 @@ void EtwParser::PushSchedSwitch(uint32_t cpu,
   // First use this data to close the previous slice.
   bool prev_pid_match_prev_next_pid = false;
   auto* pending_sched = sched_event_state_.GetPendingSchedInfoForCpu(cpu);
-  uint32_t pending_slice_idx = pending_sched->pending_slice_storage_idx;
   StringId prev_state_string_id = TaskStateToStringId(prev_state);
   if (prev_state_string_id == kNullStringId) {
     context_->storage->IncrementStats(stats::task_state_invalid);
   }
-  if (pending_slice_idx < std::numeric_limits<uint32_t>::max()) {
+  if (pending_sched->pending_sched_id) {
     prev_pid_match_prev_next_pid = prev_tid == pending_sched->last_pid;
     if (PERFETTO_LIKELY(prev_pid_match_prev_next_pid)) {
-      context_->sched_event_tracker->ClosePendingSlice(pending_slice_idx, ts,
-                                                       prev_state_string_id);
+      context_->sched_event_tracker->ClosePendingSlice(
+          *pending_sched->pending_sched_id, ts, prev_state_string_id);
     } else {
       // If the pids are not consistent, make a note of this.
       context_->storage->IncrementStats(stats::mismatched_sched_switch_tids);
     }
   }
 
-  auto new_slice_idx = context_->sched_event_tracker->AddStartSlice(
+  auto new_sched_id = context_->sched_event_tracker->AddStartSlice(
       cpu, ts, next_utid, next_prio);
 
   // Finally, update the info for the next sched switch on this CPU.
-  pending_sched->pending_slice_storage_idx = new_slice_idx;
+  pending_sched->pending_sched_id = new_sched_id;
   pending_sched->last_pid = next_tid;
   pending_sched->last_utid = next_utid;
   pending_sched->last_prio = next_prio;

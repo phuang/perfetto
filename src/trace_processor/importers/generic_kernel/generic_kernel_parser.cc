@@ -37,7 +37,7 @@ using PendingSchedInfo = SchedEventState::PendingSchedInfo;
 PERFETTO_ALWAYS_INLINE
 void GenericKernelParser::InsertPendingStateInfoForTid(
     UniqueTid utid,
-    SchedEventState::PendingSchedInfo sched_info) {
+    PendingSchedInfo sched_info) {
   if (utid >= pending_state_per_utid_.size()) {
     pending_state_per_utid_.resize(utid + 1);
   }
@@ -45,7 +45,7 @@ void GenericKernelParser::InsertPendingStateInfoForTid(
 }
 
 PERFETTO_ALWAYS_INLINE
-std::optional<SchedEventState::PendingSchedInfo>
+std::optional<PendingSchedInfo>
 GenericKernelParser::GetPendingStateInfoForTid(UniqueTid utid) {
   return utid < pending_state_per_utid_.size() ? pending_state_per_utid_[utid]
                                                : std::nullopt;
@@ -222,31 +222,29 @@ GenericKernelParser::SchedSwitchType GenericKernelParser::PushSchedSwitch(
     StringId state_string_id,
     int32_t prio) {
   auto* pending_sched = sched_event_state_.GetPendingSchedInfoForCpu(cpu);
-  uint32_t pending_slice_idx = pending_sched->pending_slice_storage_idx;
   if (state_string_id == running_string_id_) {
     auto rc = kStart;
     // Close the previous sched slice
-    if (pending_slice_idx < std::numeric_limits<uint32_t>::max()) {
-      context_->sched_event_tracker->ClosePendingSlice(pending_slice_idx, ts,
-                                                       kNullStringId);
+    if (pending_sched->pending_sched_id) {
+      context_->sched_event_tracker->ClosePendingSlice(
+          *pending_sched->pending_sched_id, ts, kNullStringId);
       InsertPendingStateInfoForTid(pending_sched->last_utid, *pending_sched);
       rc = kStartWithPending;
     }
     // Start a new sched slice for the new task.
-    auto new_slice_idx =
+    auto new_sched_id =
         context_->sched_event_tracker->AddStartSlice(cpu, ts, utid, prio);
 
-    pending_sched->pending_slice_storage_idx = new_slice_idx;
+    pending_sched->pending_sched_id = new_sched_id;
     pending_sched->last_pid = tid;
     pending_sched->last_utid = utid;
     pending_sched->last_prio = prio;
     return rc;
   }
   // Close the pending slice if applicable
-  if (pending_slice_idx < std::numeric_limits<uint32_t>::max() &&
-      tid == pending_sched->last_pid) {
-    context_->sched_event_tracker->ClosePendingSlice(pending_slice_idx, ts,
-                                                     state_string_id);
+  if (pending_sched->pending_sched_id && tid == pending_sched->last_pid) {
+    context_->sched_event_tracker->ClosePendingSlice(
+        *pending_sched->pending_sched_id, ts, state_string_id);
     // Clear the pending slice
     *pending_sched = SchedEventState::PendingSchedInfo();
     return kClose;
@@ -255,14 +253,13 @@ GenericKernelParser::SchedSwitchType GenericKernelParser::PushSchedSwitch(
   // For the end state to be added the timestamp of the event must match
   // the timestamp of the previous context switch.
   auto hanging_sched = GetPendingStateInfoForTid(utid);
-  if (hanging_sched.has_value()) {
-    auto sched_slice_idx = hanging_sched->pending_slice_storage_idx;
+  if (hanging_sched.has_value() && hanging_sched->pending_sched_id) {
+    auto sched_id = *hanging_sched->pending_sched_id;
     auto close_ts =
-        context_->sched_event_tracker->GetEndTimestampForPendingSlice(
-            sched_slice_idx);
+        context_->sched_event_tracker->GetEndTimestampForPendingSlice(sched_id);
     if (ts == close_ts) {
-      context_->sched_event_tracker->SetEndStateForPendingSlice(
-          sched_slice_idx, state_string_id);
+      context_->sched_event_tracker->SetEndStateForPendingSlice(sched_id,
+                                                               state_string_id);
       RemovePendingStateInfoForTid(utid);
       return kUpdateEndState;
     }

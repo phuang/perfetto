@@ -198,9 +198,9 @@ class TypedCursor {
         filter_specs_(std::move(filter_specs)),
         sort_specs_(std::move(sort_specs)),
         mutable_(mut),
-        column_mutation_count_(core::Slab<uint32_t*>::Alloc(
+        column_mutation_count_(::perfetto::trace_processor::core::Slab<uint32_t*>::Alloc(
             filter_specs_.size() + sort_specs_.size())) {
-    filter_values_.resize(filter_specs_.size());
+        filter_values_.resize(filter_specs_.size());
     filter_value_list_states_.resize(filter_specs_.size());
     filter_value_mapping_.resize(filter_specs_.size(),
                                  std::numeric_limits<uint32_t>::max());
@@ -229,8 +229,8 @@ class TypedCursor {
 
   uint32_t GetMutations() const {
     uint32_t mutations = dataframe_->non_column_mutations_;
-    for (uint32_t* m : column_mutation_count_) {
-      mutations += *m;
+    for (uint32_t i = 0; i < column_mutation_count_.size(); ++i) {
+      mutations += *column_mutation_count_[i];
     }
     return mutations;
   }
@@ -244,7 +244,7 @@ class TypedCursor {
   bool mutable_;
   Cursor<Fetcher> cursor_;
 
-  core::Slab<uint32_t*> column_mutation_count_;
+  ::perfetto::trace_processor::core::Slab<uint32_t*> column_mutation_count_;
   uint32_t last_execution_mutation_count_ =
       std::numeric_limits<uint32_t>::max();
 };

@@ -175,26 +175,27 @@ void Dataframe::ShrinkFromFront(uint32_t count) {
       case Nullability::GetTypeIndex<SparseNull>():
       case Nullability::GetTypeIndex<SparseNullWithPopcountUntilFinalization>():
       case Nullability::GetTypeIndex<SparseNullWithPopcountAlways>(): {
-        auto& null = c->null_storage.unchecked_get<SparseNull>();
+        auto& null = c->null_storage.unchecked_get<core::SparseNull>();
         storage_remove_count =
             static_cast<uint32_t>(null.bit_vector.CountSetBits(count));
         null.bit_vector.ShrinkFromFront(count);
+
         // Recompute prefix popcount if it was already present.
         if (!null.prefix_popcount_for_cell_get.empty()) {
           null.prefix_popcount_for_cell_get.clear();
           for (uint32_t i = 0; i < null.bit_vector.size(); i += 64) {
-            uint32_t prefix_popcount =
+            uint32_t prefix =
                 i == 0 ? 0
                        : static_cast<uint32_t>(
                              null.prefix_popcount_for_cell_get.back() +
                              null.bit_vector.count_set_bits_in_word(i - 64));
-            null.prefix_popcount_for_cell_get.push_back(prefix_popcount);
+            null.prefix_popcount_for_cell_get.push_back(prefix);
           }
         }
         break;
       }
       case Nullability::GetTypeIndex<DenseNull>(): {
-        auto& null = c->null_storage.unchecked_get<DenseNull>();
+        auto& null = c->null_storage.unchecked_get<core::DenseNull>();
         null.bit_vector.ShrinkFromFront(count);
         storage_remove_count = count;
         break;
